@@ -43,6 +43,7 @@ setup(
     install_requires=REQUIRED_PACKAGES,
     include_package_data=True,
     zip_safe=True,
+    scripts=['scripts/tfdp_new_model.py'],
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Environment :: GPU',

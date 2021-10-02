@@ -12,12 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""TF workflows."""
+"""New model workflow."""
 
-import yaml
+import argparse
+import sys
+
+import tensorflow_declarative as tfdp
 
 
-def new_model(config_file):
-  # Load configuration.
-  with open(config_file) as f:
-    config = yaml.safe_load(f)
+parser = argparse.ArgumentParser(description='New model workflow.')
+parser.add_argument('config_file',
+                    help='configuration file')
+args = parser.parse_args()
+
+tfdp.new_model(args.config_file)
+
+sys.exit(0)
