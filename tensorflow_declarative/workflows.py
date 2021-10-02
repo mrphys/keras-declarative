@@ -16,8 +16,24 @@
 
 import yaml
 
+from tensorflow_declarative import objects
+
 
 def new_model(config_file):
   # Load configuration.
   with open(config_file) as f:
-    config = yaml.safe_load(f)
+    config = yaml.load(f, Loader=yaml.FullLoader)
+
+  config['compile']['loss'] = _parse_loss(config['compile']['loss'])
+
+  
+  print(config)
+
+  # model.compile(**config['compile'])
+  # model.fit(**config['fit'])
+
+
+def _parse_loss(identifiers):
+  if isinstance(identifiers, list):
+    return [objects.get_loss(identifier) for identifier in identifiers]
+  return objects.get_loss(identifiers)

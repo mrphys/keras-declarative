@@ -14,4 +14,5 @@
 # ==============================================================================
 """TensorFlow Declarative."""
 
+from tensorflow_declarative.objects import *
 from tensorflow_declarative.workflows import *
