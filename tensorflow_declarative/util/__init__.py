@@ -12,19 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""New model workflow."""
-
-import argparse
-import sys
-
-import tensorflow_declarative as tfdp
-
-
-parser = argparse.ArgumentParser(description='New model workflow.')
-parser.add_argument('config_file',
-                    help='configuration file')
-args = parser.parse_args()
-
-tfdp.new_model(args.config_file)
-
-sys.exit(0)
+"""Utilities."""

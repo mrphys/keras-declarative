@@ -43,7 +43,11 @@ setup(
     install_requires=REQUIRED_PACKAGES,
     include_package_data=True,
     zip_safe=True,
-    scripts=['scripts/tfdp_new_model.py'],
+    entry_points={
+        'console_scripts': [
+            'tfdp.new_model = tensorflow_declarative.cli:new_model'
+        ]
+    },
     classifiers=[
         'Development Status :: 3 - Alpha',
         'Environment :: GPU',
