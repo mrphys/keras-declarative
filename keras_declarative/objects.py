@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""TFDP objects."""
+"""Keras objects registry."""
 
 import inspect
 
 import tensorflow as tf
 
-from tensorflow_declarative import config as config_module
+from keras_declarative import config as config_module
 
 
 def get_list(get_fn):

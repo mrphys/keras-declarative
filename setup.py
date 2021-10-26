@@ -21,7 +21,7 @@ from setuptools import setup
 ROOT = path.abspath(path.dirname(__file__))
 
 ABOUT = {}
-with open(path.join(ROOT, "tensorflow_declarative/__about__.py")) as f:
+with open(path.join(ROOT, "keras_declarative/__about__.py")) as f:
     exec(f.read(), ABOUT)
 
 with open(path.join(ROOT, "README.rst"), encoding='utf-8') as f:
@@ -45,7 +45,7 @@ setup(
     zip_safe=True,
     entry_points={
         'console_scripts': [
-            'tfdp.new_model = tensorflow_declarative.cli:new_model'
+            'keras.train_model = keras_declarative.cli:train_model'
         ]
     },
     classifiers=[
@@ -67,5 +67,5 @@ setup(
         'Topic :: Software Development :: Libraries :: Python Modules'
     ],
     license=ABOUT['__license__'],
-    keywords=['tensorflow', 'machine learning', 'ml']   
+    keywords=['tensorflow', 'keras', 'machine learning', 'ml']   
 )

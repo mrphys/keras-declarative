@@ -12,27 +12,4 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""About TensorFlow Declarative."""
-
-__all__ = [
-    "__title__",
-    "__summary__",
-    "__uri__",
-    "__version__",
-    "__author__",
-    "__email__",
-    "__license__",
-    "__copyright__",
-]
-
-__title__ = "tensorflow-declarative"
-__summary__ = "A declarative TensorFlow interface."
-__uri__ = "https://github.com/mrphys/tensorflow-declarative"
-
-__version__ = "0.1.0"
-
-__author__ = "Javier Montalt Tordera"
-__email__ = "javier.montalt@outlook.com"
-
-__license__ = "Apache 2.0"
-__copyright__ = "2021 University College London"
+"""Utilities."""

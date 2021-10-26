@@ -12,34 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""TF workflows."""
+"""Keras workflows."""
 
+import collections
 import datetime
 import functools
+import itertools
 import os
 import random
 
 import numpy as np
 import tensorflow as tf
-from tensorflow._api.v2 import test
 import tensorflow_io as tfio
 
 from official.modeling import hyperparams
 from tensorflow_mri.python.util import io_util
 from tensorflow_mri.python.util import model_util
 
-from tensorflow_declarative import config
-from tensorflow_declarative import objects
+from keras_declarative import config
+from keras_declarative import objects
+from keras_declarative import util
 
 
-def new_model(config_file):
+def train_model(config_file):
   """Create and train a new model.
   
   Args:
     config_file: Path to the YAML configuration file.
   """
   # Get default config for this experiment.
-  params = config.NewModelWorkflowConfig()
+  params = config.TrainModelWorkflowConfig()
 
   # Do overrides from from `config_file`.
   for file in config_file or []:
@@ -48,8 +50,9 @@ def new_model(config_file):
 
   _set_global_config(params)
   expdir = _setup_experiment(params, config_file)
-  datasets = _setup_datasets(params)
-  model = _setup_model(params, datasets[0], datasets[1])
+  datasets, files = _setup_datasets(params)
+  model = _train_model(params, datasets, expdir)
+  predict = _do_predictions(params, model, datasets, files, expdir)
 
 
 def _set_global_config(params):
@@ -114,10 +117,8 @@ def _setup_datasets(params):
   # Some functions.
   def _read_hdf5(filename, spec=None):
     hdf5_io_tensor = tfio.IOTensor.from_hdf5(filename, spec=spec)
-    return {k: hdf5_io_tensor(k).to_tensor() for k in hdf5_io_tensor.keys}
-  
-  def _set_static_shape(x, spec=None):
-    return {k: tf.ensure_shape(v, spec[k].shape) for k, v in x.items()}
+    tensors = {k: hdf5_io_tensor(k).to_tensor() for k in hdf5_io_tensor.keys}
+    return {k: tf.ensure_shape(v, spec[k].shape) for k, v in tensors.items()}
 
   def _get_outputs(x):
     out = [v for v in x.values()]
@@ -129,39 +130,47 @@ def _setup_datasets(params):
   test_dataset = tf.data.Dataset.from_tensor_slices(test_files)
 
   # Add data read.
-  train_dataset = train_dataset.map(functools.partial(_read_hdf5, spec=train_spec))
-  val_dataset = val_dataset.map(functools.partial(_read_hdf5, spec=val_spec))
-  test_dataset = test_dataset.map(functools.partial(_read_hdf5, spec=test_spec))
-
-  # Add static shape info.
-  train_dataset = train_dataset.map(functools.partial(_set_static_shape, spec=train_spec))
-  val_dataset = val_dataset.map(functools.partial(_set_static_shape, spec=val_spec))
-  test_dataset = test_dataset.map(functools.partial(_set_static_shape, spec=test_spec))
+  train_dataset = train_dataset.map(
+      functools.partial(_read_hdf5, spec=train_spec))
+  val_dataset = val_dataset.map(
+      functools.partial(_read_hdf5, spec=val_spec))
+  test_dataset = test_dataset.map(
+      functools.partial(_read_hdf5, spec=test_spec))
   
   # Extract outputs.
   train_dataset = train_dataset.map(_get_outputs)
   val_dataset = val_dataset.map(_get_outputs)
   test_dataset = test_dataset.map(_get_outputs)
 
-  def _add_transforms(dataset, transforms):
+  def _add_transforms(dataset, filelist, transforms):
     for transform in transforms:
-      if transform.type == 'map':
+      if transform.type == 'batch':
+        dataset = dataset.batch(transform.batch.batch_size,
+                                drop_remainder=transform.batch.drop_remainder,
+                                num_parallel_calls=transform.batch.num_parallel_calls,
+                                deterministic=transform.batch.deterministic)
+      elif transform.type == 'map':
         map_func = objects.get_layer(transform.map.map_func)
-        dataset = dataset.map(map_func,
+        dataset = dataset.map(_get_map_func(map_func, transform.map.component),
                               num_parallel_calls=transform.map.num_parallel_calls,
                               deterministic=transform.map.deterministic)
-      print(transform, dataset.element_spec)
+
     return dataset
 
   train_dataset = _add_transforms(train_dataset, params.data.train_transforms)
   val_dataset = _add_transforms(val_dataset, params.data.val_transforms)
   test_dataset = _add_transforms(test_dataset, params.data.test_transforms)
 
-  return train_dataset, val_dataset, test_dataset
+  datasets = train_dataset, val_dataset, test_dataset
+  files = train_files, val_files, test_files
+
+  return datasets, files
 
 
-def _setup_model(params, train_dataset, val_dataset):
+def _train_model(params, datasets, expdir):
   """Create and train a model."""
+  train_dataset, val_dataset, _ = datasets
+
   # Currently we support only layers as network.
   layer = objects.get_layer(params.model.network)
 
@@ -182,7 +191,7 @@ def _setup_model(params, train_dataset, val_dataset):
   optimizer = objects.get_optimizer(params.training.optimizer)
   loss = objects.get_list(objects.get_loss)(params.training.loss)
   metrics = objects.get_list(objects.get_metric)(params.training.metrics)
-  callbacks = objects.get_list(objects.get_callback)(params.training.callbacks)
+  callbacks = _process_callbacks(params, expdir)
 
   model.compile(optimizer=optimizer,
                 loss=loss,
@@ -199,6 +208,54 @@ def _setup_model(params, train_dataset, val_dataset):
             validation_data=val_dataset)
 
   return model
+
+
+def _do_predictions(params, model, datasets, files, expdir):
+
+  train_dataset, val_dataset, test_dataset = datasets
+  train_files, val_files, test_files = files
+
+  datasets = {
+      'train': train_dataset,
+      'val': val_dataset,
+      'test': test_dataset
+  }
+
+  if isinstance(params.predict.datasets, str):
+    dataset_keys = [params.predict.datasets]
+  else:
+    dataset_keys = params.predict.datasets
+
+  datasets = {k: datasets[k] for k in dataset_keys}
+
+  pred_path = _get_pred_path(params, expdir)
+  tf.io.gfile.makedirs(pred_path)
+
+  input_names = defaultdict(lambda key: 'inputs_' + str(key))
+  output_names = defaultdict(lambda key: 'outputs_' + str(key))
+
+  for name, dataset in datasets.items():
+    path = os.path.join(pred_path, name)
+    tf.io.gfile.makedirs(path)
+
+    progbar = tf.keras.utils.Progbar(dataset.cardinality().numpy())
+
+    for element in dataset:
+      x, y, _ = tf.keras.utils.unpack_x_y_sample_weight(element)
+      y_pred = model(x, training=False)
+
+      x = _flatten_structure_and_unbatch(x)
+      y = _flatten_structure_and_unbatch(y) or itertools.repeat(None)
+      y_pred = _flatten_structure_and_unbatch(y_pred) or itertools.repeat(None)
+
+      # For each element in batch.
+      for x_, y_, y_pred_ in zip(x, y, y_pred):
+        d = {
+
+        }
+        pass
+
+      progbar.add(1)
 
 
 def _parse_spec_config(spec_config):
@@ -228,3 +285,113 @@ def _parse_spec_config(spec_config):
     return {spec.name: tf.TensorSpec(spec.shape, spec.dtype, spec.name) for spec in spec_config}
   else:
     return [tf.TensorSpec(spec.shape, spec.dtype) for spec in spec_config]
+
+
+def _get_map_func(map_func, component=None):
+
+    if component is None:
+      return map_func
+
+    def _map_func(x):
+      x[component] = map_func(x[component])
+      return x
+
+    return _map_func
+
+
+def _process_callbacks(params, expdir):
+
+  # TODO: Complete callback configs.
+  callback_configs = params.training.callbacks
+
+  # Parse callback configs.
+  callbacks = objects.get_list(objects.get_callback)(callback_configs)
+
+  # Add default training callbacks.
+  if params.training.use_default_callbacks:
+    callbacks = _add_default_training_callbacks(callbacks, params, expdir)
+
+  return callbacks
+
+
+def _add_default_training_callbacks(callbacks, params, expdir):
+
+  # Add model checkpoint callback, if there isn't one already.
+  if not any(
+      isinstance(c, tf.keras.callbacks.ModelCheckpoint) for c in callbacks):
+    callbacks.append(
+        tf.keras.callbacks.ModelCheckpoint(
+            filepath=_get_ckpt_path(params, expdir),
+            monitor=_CKPT_MONITOR_DEFAULT,
+            verbose=1,
+            save_best_only=_CKPT_SAVE_BEST_ONLY_DEFAULT,
+            save_weights_only=_CKPT_SAVE_WEIGHTS_ONLY_DEFAULT,
+            mode='auto',
+            save_freq='epoch'))
+
+  # Add Tensorboard callback, if there isn't one already.
+  if not any(
+      isinstance(c, tf.keras.callbacks.TensorBoard) for c in callbacks):
+    callbacks.append(
+        tf.keras.callbacks.TensorBoard(
+            log_dir=_get_logs_path(params, expdir),
+            histogram_freq=0,
+            write_graph=True,
+            write_images=False,
+            update_freq='epoch',
+            profile_batch=2))
+
+  return callbacks
+
+
+def _flatten_structure_and_unbatch(structure):
+  if structure is None:
+    return structure
+  return [tf.unstack(x) for x in tf.nest.flatten(structure)]
+
+
+def _get_ckpt_path(params, expdir, ckpt_config=None):
+
+  # Get relevant checkpoint configuration.
+  ckpt_config = ckpt_config or {}
+  monitor = ckpt_config.get(
+      'monitor', _CKPT_MONITOR_DEFAULT)
+  save_best_only = ckpt_config.get(
+      'save_best_only', _CKPT_SAVE_BEST_ONLY_DEFAULT)
+  save_weights_only = ckpt_config.get(
+      'save_weights_only', _CKPT_SAVE_WEIGHTS_ONLY_DEFAULT)
+
+  # The checkpoint directory. Create if necessary.
+  path = os.path.join(expdir, 'ckpt')
+  tf.io.gfile.makedirs(path)
+
+  # The checkpoint filename.
+  filename = 'weights' if save_weights_only else 'model'
+  filename += '.{epoch:03d}-{' + monitor + ':.3f}.h5'
+
+  return os.path.join(path, filename)
+
+
+def _get_logs_path(params, expdir):
+
+  return os.path.join(expdir, 'logs')
+
+
+def _get_pred_path(params, expdir):
+
+  return os.path.join(expdir, 'pred')
+
+
+_CKPT_MONITOR_DEFAULT = 'val_loss'
+_CKPT_SAVE_BEST_ONLY_DEFAULT = True
+_CKPT_SAVE_WEIGHTS_ONLY_DEFAULT = False
+
+
+class defaultdict(collections.defaultdict):
+
+  def __missing__(self, key):
+    if self.default_factory is None:
+      raise KeyError(key)
+    else:
+      ret = self[key] = self.default_factory(key)
+      return ret

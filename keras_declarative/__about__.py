@@ -12,7 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""TensorFlow Declarative."""
+"""About Keras Declarative."""
 
-from tensorflow_declarative.objects import *
-from tensorflow_declarative.workflows import *
+__all__ = [
+    "__title__",
+    "__summary__",
+    "__uri__",
+    "__version__",
+    "__author__",
+    "__email__",
+    "__license__",
+    "__copyright__",
+]
+
+__title__ = "keras-declarative"
+__summary__ = "A declarative Keras interface."
+__uri__ = "https://github.com/mrphys/keras-declarative"
+
+__version__ = "0.1.0"
+
+__author__ = "Javier Montalt Tordera"
+__email__ = "javier.montalt@outlook.com"
+
+__license__ = "Apache 2.0"
+__copyright__ = "2021 University College London"

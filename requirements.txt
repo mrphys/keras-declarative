@@ -1,2 +1,2 @@
-pyyaml
 tensorflow
+tf-models-official

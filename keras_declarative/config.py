@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""TFDP configuration."""
+"""Configuration."""
 
 import dataclasses
 from typing import List, Union, Optional
@@ -61,17 +61,28 @@ class ObjectConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class BatchTransformConfig(hyperparams.Config):
+  """Batch transform configuration."""
+  batch_size: int = None
+  drop_remainder: bool = False
+  num_parallel_calls: Optional[int] = None
+  deterministic: Optional[bool] = None
+
+
+@dataclasses.dataclass
 class MapTransformConfig(hyperparams.Config):
   """Data transform configuration."""
   map_func: ObjectConfig = ObjectConfig()
   num_parallel_calls: Optional[int] = None
   deterministic: Optional[bool] = None
+  component: Optional[Union[int, str]] = None
 
 
 @dataclasses.dataclass
 class DataTransformConfig(hyperparams.OneOfConfig):
   """Data transform configuration."""
   type: str = None
+  batch: BatchTransformConfig = BatchTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
 
 
@@ -115,12 +126,20 @@ class TrainingConfig(hyperparams.Config):
   epochs: int = 1
   verbose: Union[str, int] = 2
   callbacks: List[ObjectConfig] = dataclasses.field(default_factory=list)
+  use_default_callbacks: bool = True
 
 
 @dataclasses.dataclass
-class NewModelWorkflowConfig(hyperparams.Config):
-  """New model workflow configuration."""
+class PredictConfig(hyperparams.Config):
+  """Prediction configuration."""
+  datasets: List[str] = 'test'
+
+
+@dataclasses.dataclass
+class TrainModelWorkflowConfig(hyperparams.Config):
+  """Train model workflow configuration."""
   general: GeneralConfig = GeneralConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()
+  predict: PredictConfig = PredictConfig()

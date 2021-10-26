@@ -19,7 +19,7 @@ import sys
 from absl import app
 from absl import flags
 
-from tensorflow_declarative import workflows
+from keras_declarative import workflows
 
 
 FLAGS = flags.FLAGS
@@ -39,13 +39,13 @@ def define_flags():
       required=True)
 
 
-def _new_model(argv):
+def _train_model(argv):
   """Create and train a new model (CLI, internal)."""
-  workflows.new_model(FLAGS.config_file)
+  workflows.train_model(FLAGS.config_file)
   sys.exit(0)
 
 
-def new_model():
+def train_model():
   """Create and train a new model (CLI)."""
   define_flags()
-  app.run(_new_model)
+  app.run(_train_model)
