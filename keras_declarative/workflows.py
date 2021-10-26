@@ -142,7 +142,7 @@ def _setup_datasets(params):
   val_dataset = val_dataset.map(_get_outputs)
   test_dataset = test_dataset.map(_get_outputs)
 
-  def _add_transforms(dataset, filelist, transforms):
+  def _add_transforms(dataset, transforms):
     for transform in transforms:
       if transform.type == 'batch':
         dataset = dataset.batch(transform.batch.batch_size,
@@ -221,6 +221,12 @@ def _do_predictions(params, model, datasets, files, expdir):
       'test': test_dataset
   }
 
+  files = {
+      'train': train_files,
+      'val': val_files,
+      'test': test_files
+  }
+
   if isinstance(params.predict.datasets, str):
     dataset_keys = [params.predict.datasets]
   else:
@@ -231,8 +237,10 @@ def _do_predictions(params, model, datasets, files, expdir):
   pred_path = _get_pred_path(params, expdir)
   tf.io.gfile.makedirs(pred_path)
 
-  input_names = defaultdict(lambda key: 'inputs_' + str(key))
-  output_names = defaultdict(lambda key: 'outputs_' + str(key))
+  input_names = defaultdict(lambda key: 'input_' + str(key))
+  output_names = defaultdict(lambda key: 'output_' + str(key))
+
+  # TODO: add possibility of using specified names.
 
   for name, dataset in datasets.items():
     path = os.path.join(pred_path, name)
@@ -249,11 +257,12 @@ def _do_predictions(params, model, datasets, files, expdir):
       y_pred = _flatten_structure_and_unbatch(y_pred) or itertools.repeat(None)
 
       # For each element in batch.
-      for x_, y_, y_pred_ in zip(x, y, y_pred):
-        d = {
-
-        }
-        pass
+      for e_x, e_y, e_y_pred in zip(x, y, y_pred):
+        d = {}
+        d.update({name: value for name, value in zip(input_names, e_x)})
+        d.update({name: value for name, value in zip(output_names, e_y)})
+        d.update({name + '_pred': value for name, value in zip(output_names, e_y_pred)})
+        io_util.write_hdf5(os.path.join(pred_path, files[name].pop(0)), d)
 
       progbar.add(1)
 
