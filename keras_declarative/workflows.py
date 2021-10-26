@@ -49,7 +49,7 @@ def train_model(config_file):
   print(params)
 
   _set_global_config(params)
-  expdir = _setup_experiment(params, config_file)
+  expdir = _setup_directory(params, config_file)
   datasets, files = _setup_datasets(params)
   model = _train_model(params, datasets, expdir)
   predict = _do_predictions(params, model, datasets, files, expdir)
@@ -63,7 +63,7 @@ def _set_global_config(params):
     tf.random.set_seed(params.general.seed)
 
 
-def _setup_experiment(params, config_file):
+def _setup_directory(params, config_file):
   """Set up experiment directory."""
   if params.general.path is None:
     raise ValueError("`general.path` must be provided.")

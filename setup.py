@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Setup TensorFlow Declarative."""
+"""Setup Keras Declarative."""
 
 from os import path
 from setuptools import find_packages
