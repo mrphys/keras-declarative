@@ -70,6 +70,12 @@ class BatchTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class CacheTransformConfig(hyperparams.Config):
+  """Cache transform configuration."""
+  filename: str = ''
+
+
+@dataclasses.dataclass
 class MapTransformConfig(hyperparams.Config):
   """Data transform configuration."""
   map_func: ObjectConfig = ObjectConfig()
@@ -79,11 +85,28 @@ class MapTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class ShuffleTransformConfig(hyperparams.Config):
+  """Shuffle transform configuration."""
+  buffer_size: int = None
+  seed: Optional[int] = None
+  reshuffle_each_iteration: Optional[bool] = None
+
+
+@dataclasses.dataclass
 class DataTransformConfig(hyperparams.OneOfConfig):
   """Data transform configuration."""
   type: str = None
   batch: BatchTransformConfig = BatchTransformConfig()
+  cache: CacheTransformConfig = CacheTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
+  shuffle: ShuffleTransformConfig = ShuffleTransformConfig()
+
+
+class DataOptionsConfig(hyperparams.Config):
+  """Data options configuration."""
+  shuffle_training_only: bool = True
+  max_intra_op_parallelism: int = None
+  private_threadpool_size: int = None
 
 
 @dataclasses.dataclass
@@ -96,11 +119,12 @@ class DataConfig(hyperparams.Config):
   train_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
   val_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
   test_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
+  options: DataOptionsConfig = DataOptionsConfig()
 
 
 @dataclasses.dataclass
-class GeneralConfig(hyperparams.Config):
-  """General configuration."""
+class ExperimentConfig(hyperparams.Config):
+  """Experiment configuration."""
   name: str = None
   path: str = None
   seed: Optional[int] = None
@@ -124,7 +148,7 @@ class TrainingConfig(hyperparams.Config):
   run_eagerly: bool = None
   steps_per_execution: int = None
   epochs: int = 1
-  verbose: Union[str, int] = 2
+  verbose: Union[str, int] = 1
   callbacks: List[ObjectConfig] = dataclasses.field(default_factory=list)
   use_default_callbacks: bool = True
 
@@ -138,7 +162,7 @@ class PredictConfig(hyperparams.Config):
 @dataclasses.dataclass
 class TrainModelWorkflowConfig(hyperparams.Config):
   """Train model workflow configuration."""
-  general: GeneralConfig = GeneralConfig()
+  experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()

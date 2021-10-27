@@ -13,3 +13,39 @@
 # limitations under the License.
 # ==============================================================================
 """Utilities."""
+
+import tensorflow as tf
+
+
+def model_from_layers(layers, input_spec):
+  """Create a Keras model from the given layers and input specification.
+
+  Args:
+    layers: A `tf.keras.layers.Layer` or a list thereof.
+    input_spec: A nested structure of `tf.TensorSpec` objects.
+
+  Returns:
+    A `tf.keras.Model`.
+  """
+  if isinstance(layers, tf.keras.layers.Layer):
+    layers = [layers]
+
+  # Generate inputs with the passed specification.
+  def _make_input(spec):
+
+    if spec.shape == None:
+      return tf.keras.Input(shape=None, batch_size=None, dtype=spec.dtype)
+
+    return tf.keras.Input(shape=spec.shape[1:],
+                          batch_size=spec.shape[0],
+                          dtype=spec.dtype)
+
+  inputs = tf.nest.map_structure(_make_input, input_spec)
+
+  # Forward pass.
+  outputs = inputs
+  for layer in layers:
+    outputs = layer(outputs)
+
+  # Build model using functional API.
+  return tf.keras.Model(inputs=inputs, outputs=outputs)

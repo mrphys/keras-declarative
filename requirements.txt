@@ -1,2 +1,4 @@
+h5py
 tensorflow
+tensorflow-io
 tf-models-official

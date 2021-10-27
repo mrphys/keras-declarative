@@ -211,17 +211,35 @@ except ImportError:
   pass
 
 
-_CALLBACK_OBJECTS = _find_objects(_CALLBACK_MODULES,
-                                  tf.keras.callbacks.Callback)
+_CALLBACK_OBJECTS = None
+_LAYER_OBJECTS = None
+_LOSS_OBJECTS = None
+_METRIC_OBJECTS = None
+_OPTIMIZER_OBJECTS = None
 
-_LAYER_OBJECTS = _find_objects(_LAYER_MODULES,
-                               tf.keras.layers.Layer)
 
-_LOSS_OBJECTS = _find_objects(_LOSS_MODULES,
-                              tf.keras.losses.Loss)
+def discover_objects(custom_modules=None):
 
-_METRIC_OBJECTS = _find_objects(_METRIC_MODULES,
-                                tf.keras.metrics.Metric)
+  global _CALLBACK_OBJECTS
+  global _LAYER_OBJECTS
+  global _LOSS_OBJECTS
+  global _METRIC_OBJECTS
+  global _OPTIMIZER_OBJECTS
 
-_OPTIMIZER_OBJECTS = _find_objects(_OPTIMIZER_MODULES,
-                                   tf.keras.optimizers.Optimizer)
+  _CALLBACK_OBJECTS = _find_objects(_CALLBACK_MODULES,
+                                    tf.keras.callbacks.Callback)
+
+  _LAYER_OBJECTS = _find_objects(_LAYER_MODULES,
+                                tf.keras.layers.Layer)
+
+  _LOSS_OBJECTS = _find_objects(_LOSS_MODULES,
+                                tf.keras.losses.Loss)
+
+  _METRIC_OBJECTS = _find_objects(_METRIC_MODULES,
+                                  tf.keras.metrics.Metric)
+
+  _OPTIMIZER_OBJECTS = _find_objects(_OPTIMIZER_MODULES,
+                                    tf.keras.optimizers.Optimizer)
+
+
+discover_objects()

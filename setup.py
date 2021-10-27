@@ -41,6 +41,7 @@ setup(
     url=ABOUT['__uri__'],
     packages=find_packages(),
     install_requires=REQUIRED_PACKAGES,
+    python_requires='>=3.7',
     include_package_data=True,
     zip_safe=True,
     entry_points={
@@ -58,7 +59,6 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: C++',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
         'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: 3.9',
