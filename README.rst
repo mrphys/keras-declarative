@@ -1,7 +1,7 @@
 Keras Declarative
 =================
 
-.. warning::
+.. note::
     This package is in alpha stage.
     This README is a work in progress.
 
