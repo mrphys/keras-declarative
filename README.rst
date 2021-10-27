@@ -1,9 +1,8 @@
 Keras Declarative
 =================
 
-.. note::
-    This package is in alpha stage.
-    This README is a work in progress.
+  This package is in alpha stage.
+  This README is a work in progress.
 
 Object Discovery
 ----------------
