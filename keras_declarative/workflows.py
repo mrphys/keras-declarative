@@ -49,7 +49,7 @@ def train_model(config_file):
   _set_global_config(params)
   expdir = _setup_directory(params, config_file)
   datasets, files = _setup_datasets(params)
-  model = _train_model(params, datasets, expdir)
+  model = _train_model(params, expdir, datasets)
   _do_predictions(params, model, datasets, files, expdir)
 
 
@@ -79,6 +79,8 @@ def _setup_directory(params, config_file):
   expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
   expdir = os.path.join(path, expname)
   tf.io.gfile.makedirs(expdir)
+  hyperparams.save_params_dict_to_yaml(
+      params, os.path.join(expdir, 'config.yaml'))
   return expdir
 
 
@@ -238,11 +240,16 @@ def _set_dataset_options(dataset, options_config):
   return dataset.with_options(options)
 
 
-def _train_model(params, datasets, expdir):
+def _train_model(params, expdir, datasets):
   """Create and train a model.
   
   Args:
-    params: A `config.TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig`.
+    expdir: Path to the experiment directory.
+    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+
+  Returns:
+    A trained `tf.keras.Model`.
   """
   train_dataset, val_dataset, _ = datasets
 
