@@ -35,3 +35,5 @@ RUN git clone https://github.com/mrphys/tensorflow-mri tensorflow_mri --branch d
 RUN git clone https://github.com/mrphys/keras-declarative keras_declarative --branch develop && \
     cd keras_declarative && \
     python3.8 -m pip install -e .
+
+ENV TFMR_DISABLE_OP_LIBRARY=1
