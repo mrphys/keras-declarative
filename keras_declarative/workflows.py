@@ -432,7 +432,6 @@ def _process_callbacks(params, expdir, datasets):
     elif (isinstance(value, config.ObjectConfig) and
         value.class_name == 'TensorBoardImages'):
       images_kwargs = value.config.as_dict()
-      print(images_kwargs)
       continue
 
     remaining_callback_configs.append(value)
