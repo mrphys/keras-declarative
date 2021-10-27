@@ -17,6 +17,7 @@
 import collections
 import datetime
 import functools
+import glob
 import itertools
 import os
 import random
@@ -46,11 +47,17 @@ def train_model(config_file):
   for file in config_file or []:
     params = hyperparams.override_params_dict(params, file, is_strict=False)
 
-  _set_global_config(params)
-  expdir = _setup_directory(params, config_file)
-  datasets, files = _setup_datasets(params)
-  model = _train_model(params, expdir, datasets)
-  _do_predictions(params, model, datasets, files, expdir)
+  cachefiles = []
+  try:
+    _set_global_config(params)
+    expname, expdir = _setup_directory(params, config_file)
+    datasets, files, cachefiles = _setup_datasets(params, expname)
+    model = _train_model(params, expdir, datasets)
+    _do_predictions(params, model, datasets, files, expdir)
+    _clean_up(cachefiles)
+  except BaseException as err:
+    _clean_up(cachefiles)
+    raise err
 
 
 def _set_global_config(params):
@@ -72,7 +79,7 @@ def _setup_directory(params, config_file):
     params: A `config.TrainModelWorkflowConfig`.
 
   Returns:
-    The experiment directory.
+    The experiment name and the experiment directory.
   """
   path = params.experiment.path or os.getcwd()
   expname = params.experiment.name or os.path.splitext(os.path.basename(config_file[-1]))[0]
@@ -81,18 +88,19 @@ def _setup_directory(params, config_file):
   tf.io.gfile.makedirs(expdir)
   hyperparams.save_params_dict_to_yaml(
       params, os.path.join(expdir, 'config.yaml'))
-  return expdir
+  return expname, expdir
 
 
-def _setup_datasets(params):
+def _setup_datasets(params, expname):
   """Set up datasets.
   
   Args:
     params: A `config.TrainModelWorkflowConfig`.
+    expname: A `str`. The experiment name.
 
   Returns:
-    A tuple of three datasets (train, validation, test) and a tuple of three
-    lists of files.
+    A tuple of three datasets (train, validation, test), a tuple of three
+    lists of files and a list of cache files.
   """
   if params.data.sources is None:
     raise ValueError("`data.sources` must be provided.")
@@ -100,6 +108,8 @@ def _setup_datasets(params):
   train_files = []
   val_files = []
   test_files = []
+
+  cachefiles = []
 
   for source in params.data.sources:
     files = io.get_distributed_hdf5_filenames(source.path, source.prefix)
@@ -178,7 +188,12 @@ def _setup_datasets(params):
                                 deterministic=transform.batch.deterministic)
 
       elif transform.type == 'cache':
-        dataset = dataset.cache(filename=transform.cache.filename)
+        # Delete the cache file if it exists.
+        cachefile = f'{transform.cache.filename}.{expname}.{dstype}'
+        cachefiles.append(cachefile)
+        for file in glob.glob(cachefile + '*'):
+          os.remove(file)
+        dataset = dataset.cache(filename=cachefile)
 
       elif transform.type == 'map':
         map_func = objects.get_layer(transform.map.map_func)
@@ -214,7 +229,7 @@ def _setup_datasets(params):
   # Pack and return.
   datasets = train_dataset, val_dataset, test_dataset
   files = train_files, val_files, test_files
-  return datasets, files
+  return datasets, files, cachefiles
 
 
 def _set_dataset_options(dataset, options_config):
@@ -356,6 +371,17 @@ def _do_predictions(params, model, datasets, files, expdir):
       progbar.add(1)
 
   print("Prediction complete.")
+
+
+def _clean_up(cachefiles):
+  """Clean up.
+  
+  Args:
+    cachefiles: A list of cachefiles to be deleted.
+  """
+  for cachefile in cachefiles:
+    for file in glob.glob(cachefile + '*'):
+      os.remove(file)
 
 
 def _parse_spec_config(spec_config):
