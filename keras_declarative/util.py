@@ -33,7 +33,7 @@ def model_from_layers(layers, input_spec):
   # Generate inputs with the passed specification.
   def _make_input(spec):
 
-    if spec.shape == None:
+    if spec.shape == None: # pylint: disable=singleton-comparison
       return tf.keras.Input(shape=None, batch_size=None, dtype=spec.dtype)
 
     return tf.keras.Input(shape=spec.shape[1:],

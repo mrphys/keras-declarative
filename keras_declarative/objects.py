@@ -12,7 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Keras objects registry."""
+"""Keras objects registry.
+
+Keras Declarative maintains its own object registry. There are a few differences
+with respect to the Keras registry:
+
+  * It includes non-serializable objects such as callbacks.
+  * It does not prepend package prefixes to object names.
+  * It supports objects of type `ObjectConfig` as identifiers.
+"""
 
 import inspect
 
@@ -123,10 +131,14 @@ def _get(identifier, objects, objtype):
 
   Returns:
     An instance of the object identified by `identifier`.
+
+  Raises:
+    ValueError: If the identifier is invalid.
+    RuntimeError: If an error occurs while initializing the object.
   """
   if identifier is None:
     return None
-  
+
   if isinstance(identifier, config_module.ObjectConfig):
     identifier = {
       'class_name': identifier.class_name,
@@ -219,26 +231,35 @@ _OPTIMIZER_OBJECTS = None
 
 
 def discover_objects(custom_modules=None):
+  """Discover Keras objects.
 
+  By default, this function searches for Keras objects in core TensorFlow and
+  TensorFlow MRI (if installed).
+
+  Args:
+    custom_modules: A list of custom modules to be searched for Keras objects.
+  """
   global _CALLBACK_OBJECTS
   global _LAYER_OBJECTS
   global _LOSS_OBJECTS
   global _METRIC_OBJECTS
   global _OPTIMIZER_OBJECTS
 
-  _CALLBACK_OBJECTS = _find_objects(_CALLBACK_MODULES,
+  custom_modules = custom_modules or []
+
+  _CALLBACK_OBJECTS = _find_objects(_CALLBACK_MODULES + custom_modules,
                                     tf.keras.callbacks.Callback)
 
-  _LAYER_OBJECTS = _find_objects(_LAYER_MODULES,
+  _LAYER_OBJECTS = _find_objects(_LAYER_MODULES + custom_modules,
                                 tf.keras.layers.Layer)
 
-  _LOSS_OBJECTS = _find_objects(_LOSS_MODULES,
+  _LOSS_OBJECTS = _find_objects(_LOSS_MODULES + custom_modules,
                                 tf.keras.losses.Loss)
 
-  _METRIC_OBJECTS = _find_objects(_METRIC_MODULES,
+  _METRIC_OBJECTS = _find_objects(_METRIC_MODULES + custom_modules,
                                   tf.keras.metrics.Metric)
 
-  _OPTIMIZER_OBJECTS = _find_objects(_OPTIMIZER_MODULES,
+  _OPTIMIZER_OBJECTS = _find_objects(_OPTIMIZER_MODULES + custom_modules,
                                     tf.keras.optimizers.Optimizer)
 
 
