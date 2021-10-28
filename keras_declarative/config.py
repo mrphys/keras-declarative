@@ -28,8 +28,8 @@ from official.modeling import hyperparams
 @dataclasses.dataclass
 class DataSplitConfig(hyperparams.Config):
   """Data split configuration."""
-  train: float = None
-  val: float = None
+  train: float = 0.0
+  val: float = 0.0
   test: float = 0.0
   mode: str = 'random'
 
@@ -143,7 +143,7 @@ class ExperimentConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class ModelConfig(hyperparams.Config):
+class NewModelConfig(hyperparams.Config):
   """Model configuration.
 
   Attributes:
@@ -155,6 +155,25 @@ class ModelConfig(hyperparams.Config):
   """
   network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class ExistingModelConfig(hyperparams.Config):
+  """Existing model configuration.
+  
+  Attributes:
+    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
+      loads this model ignoring the remaining arguments.
+  """
+  path: str = None
+
+
+@dataclasses.dataclass
+class ModelConfig(hyperparams.OneOfConfig):
+  """Model configuration."""
+  type: str = 'new'
+  new: NewModelConfig = NewModelConfig()
+  existing: ExistingModelConfig = ExistingModelConfig()
 
 
 @dataclasses.dataclass
@@ -226,4 +245,20 @@ class TrainModelWorkflowConfig(hyperparams.Config):
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()
+  predict: PredictConfig = PredictConfig()
+
+
+@dataclasses.dataclass
+class TestModelWorkflowConfig(hyperparams.Config):
+  """Test model workflow configuration.
+  
+  Attributes:
+    experiment: An `ExperimentConfig`. General experiment configuration.
+    data: A `DataConfig`. The dataset/s configuration.
+    model: An `ExistingModelConfig`. The model configuration.
+    predict: A `PredictConfig`. The prediction configuration.
+  """
+  experiment: ExperimentConfig = ExperimentConfig()
+  data: DataConfig = DataConfig()
+  model: ExistingModelConfig = ExistingModelConfig()
   predict: PredictConfig = PredictConfig()

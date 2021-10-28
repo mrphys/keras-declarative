@@ -66,14 +66,31 @@ def test_model(config_file): # pylint: disable=missing-raises-doc
   Args:
     config_file: A list of paths to the YAML configuration files.
   """
-  raise NotImplementedError()
+  # Get default config for this experiment.
+  params = config.TestModelWorkflowConfig()
+
+  # Do overrides from from `config_file`.
+  for file in config_file or []:
+    params = hyperparams.override_params_dict(params, file, is_strict=False)
+
+  cachefiles = []
+  try:
+    _set_global_config(params)
+    expname, expdir = _setup_directory(params, config_file)
+    datasets, files, cachefiles = _setup_datasets(params, expname)
+    model = _load_model(params)
+    _do_predictions(params, model, datasets, files, expdir)
+    _clean_up(cachefiles)
+  except BaseException as err:
+    _clean_up(cachefiles)
+    raise err
 
 
 def _set_global_config(params):
   """Set global configuration.
 
   Args:
-    params: A `TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
   """
   if params.experiment.seed is not None:
     random.seed(params.experiment.seed)
@@ -85,7 +102,7 @@ def _setup_directory(params, config_file):
   """Set up experiment directory.
 
   Args:
-    params: A `TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
     config_file: A list of paths to the YAML configuration files.
 
   Returns:
@@ -106,7 +123,7 @@ def _setup_datasets(params, expname):
   """Set up datasets.
 
   Args:
-    params: A `TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
     expname: A `str`. The experiment name.
 
   Returns:
@@ -281,7 +298,7 @@ def _set_dataset_options(dataset, options_config):
 
 
 def _train_model(params, expdir, datasets):
-  """Create and train a model.
+  """Train a model.
 
   Args:
     params: A `TrainModelWorkflowConfig`.
@@ -293,20 +310,24 @@ def _train_model(params, expdir, datasets):
   """
   train_dataset, val_dataset, _ = datasets
 
-  # Currently we support only layers as network.
-  layer = objects.get_layer(params.model.network)
+  if params.model.type == 'existing':
+    model = tf.keras.models.load_model(params.model.existing.path)
 
-  if params.model.input_spec:
-    # User specified input spec explicitly, so use that.
-    input_spec = _parse_spec_config(params.model.input_spec)
+  elif params.model.type == 'new':
+    # Currently we support only layers as network.
+    layer = objects.get_layer(params.model.new.network)
 
-  else:
-    # Model input spec not specified explicitly. Infer from training dataset.
-    input_spec, _, _ = tf.keras.utils.unpack_x_y_sample_weight(
-        train_dataset.element_spec)
+    if params.model.new.input_spec:
+      # User specified input spec explicitly, so use that.
+      input_spec = _parse_spec_config(params.model.new.input_spec)
 
-  # Network.
-  model = util.model_from_layers(layer, input_spec)
+    else:
+      # Model input spec not specified explicitly. Infer from training dataset.
+      input_spec, _, _ = tf.keras.utils.unpack_x_y_sample_weight(
+          train_dataset.element_spec)
+
+    # Network.
+    model = util.model_from_layers(layer, input_spec)
 
   # Print model summary.
   model.summary(line_length=80)
@@ -333,6 +354,18 @@ def _train_model(params, expdir, datasets):
   print("Training complete.")
 
   return model
+
+
+def _load_model(params):
+  """Load a model.
+
+  Args:
+    params: A `TestModelWorkflowConfig`.
+
+  Returns:
+    A `tf.keras.Model`.
+  """
+  return tf.keras.models.load_model(params.model.existing.path)
 
 
 def _do_predictions(params, model, datasets, files, expdir):
