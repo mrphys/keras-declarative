@@ -180,7 +180,7 @@ def _setup_datasets(params, expname):
   val_dataset, cachefiles = _add_transforms(
       val_dataset, params.data.val_transforms, params.data.options,
       expname, cachefiles, 'val')
-  test_dataset = _add_transforms(
+  test_dataset, cachefiles = _add_transforms(
       test_dataset, params.data.test_transforms, params.data.options,
       expname, cachefiles, 'test')
 
