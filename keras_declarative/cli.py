@@ -39,7 +39,7 @@ def define_flags():
       required=True)
 
 
-def _train_model(argv):
+def _train_model(argv): # pylint: disable=unused-argument
   """Create and train a new model (CLI, internal)."""
   workflows.train_model(FLAGS.config_file)
   sys.exit(0)

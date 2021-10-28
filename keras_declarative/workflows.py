@@ -34,9 +34,9 @@ from keras_declarative import objects
 from keras_declarative import util
 
 
-def train_model(config_file):
+def train_model(config_file): # pylint: disable=missing-raises-doc
   """Create and train a new model.
-  
+
   Args:
     config_file: A list of paths to the YAML configuration files.
   """
@@ -62,9 +62,9 @@ def train_model(config_file):
 
 def _set_global_config(params):
   """Set global configuration.
-  
+
   Args:
-    params: A `config.TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig`.
   """
   if params.experiment.seed is not None:
     random.seed(params.experiment.seed)
@@ -76,13 +76,15 @@ def _setup_directory(params, config_file):
   """Set up experiment directory.
 
   Args:
-    params: A `config.TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig`.
+    config_file: A list of paths to the YAML configuration files.
 
   Returns:
     The experiment name and the experiment directory.
   """
   path = params.experiment.path or os.getcwd()
-  expname = params.experiment.name or os.path.splitext(os.path.basename(config_file[-1]))[0]
+  expname = (params.experiment.name or
+             os.path.splitext(os.path.basename(config_file[-1]))[0])
   expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
   expdir = os.path.join(path, expname)
   tf.io.gfile.makedirs(expdir)
@@ -93,14 +95,17 @@ def _setup_directory(params, config_file):
 
 def _setup_datasets(params, expname):
   """Set up datasets.
-  
+
   Args:
-    params: A `config.TrainModelWorkflowConfig`.
+    params: A `TrainModelWorkflowConfig`.
     expname: A `str`. The experiment name.
 
   Returns:
     A tuple of three datasets (train, validation, test), a tuple of three
     lists of files and a list of cache files.
+
+  Raises:
+    ValueError: If `data.sources` was not specified.
   """
   if params.data.sources is None:
     raise ValueError("`data.sources` must be provided.")
@@ -118,7 +123,7 @@ def _setup_datasets(params, expname):
     if source.split.mode == 'random':
       random.shuffle(files)
 
-    get_n = lambda s: s if isinstance(s, int) else int(s * n)
+    get_n = lambda s, n=n: s if isinstance(s, int) else int(s * n)
     n_train = get_n(source.split.train)
     n_val = get_n(source.split.val)
     n_test = get_n(source.split.test)
@@ -144,7 +149,7 @@ def _setup_datasets(params, expname):
     return {k: tf.ensure_shape(v, spec[k].shape) for k, v in tensors.items()}
 
   def _get_outputs(x):
-    out = [v for v in x.values()]
+    out = list(x.values())
     return out[0] if len(out) == 1 else out
 
   # Create datasets.
@@ -168,58 +173,16 @@ def _setup_datasets(params, expname):
   val_dataset = val_dataset.map(_get_outputs)
   test_dataset = test_dataset.map(_get_outputs)
 
-  def _add_transforms(dataset, transforms, options, dstype):
-    """Add configured transforms to dataset.
-    
-    Args:
-      dataset: A `tf.data.Dataset`.
-      transforms: A list of `DataTransformConfig`.
-      options: A `DataOptionsConfig`.
-      dstype: The type of this dataset. One of `'train'`, `'val'` or `'test'`.
-
-    Returns:
-      A `tf.data.Dataset`.
-    """
-    for transform in transforms or []:
-      if transform.type == 'batch':
-        dataset = dataset.batch(transform.batch.batch_size,
-                                drop_remainder=transform.batch.drop_remainder,
-                                num_parallel_calls=transform.batch.num_parallel_calls,
-                                deterministic=transform.batch.deterministic)
-
-      elif transform.type == 'cache':
-        # Delete the cache file if it exists.
-        cachefile = f'{transform.cache.filename}.{expname}.{dstype}'
-        cachefiles.append(cachefile)
-        for file in glob.glob(cachefile + '*'):
-          os.remove(file)
-        dataset = dataset.cache(filename=cachefile)
-
-      elif transform.type == 'map':
-        map_func = objects.get_layer(transform.map.map_func)
-        dataset = dataset.map(_get_map_func(map_func, transform.map.component),
-                              num_parallel_calls=transform.map.num_parallel_calls,
-                              deterministic=transform.map.deterministic)
-
-      elif transform.type == 'shuffle':
-        if dstype != 'train' and options.shuffle_training_only:
-          continue
-        dataset = dataset.shuffle(transform.shuffle.buffer_size,
-                                  seed=transform.shuffle.seed,
-                                  reshuffle_each_iteration=transform.shuffle.reshuffle_each_iteration)
-
-      else:
-        raise ValueError(f"Unknown transform type: {transform.type}")
-
-    return dataset
-
   # Add user-specified transforms to each dataset.
-  train_dataset = _add_transforms(
-      train_dataset, params.data.train_transforms, params.data.options, 'train')
-  val_dataset = _add_transforms(
-      val_dataset, params.data.val_transforms, params.data.options, 'val')
+  train_dataset, cachefiles = _add_transforms(
+      train_dataset, params.data.train_transforms, params.data.options,
+      expname, cachefiles, 'train')
+  val_dataset, cachefiles = _add_transforms(
+      val_dataset, params.data.val_transforms, params.data.options,
+      expname, cachefiles, 'val')
   test_dataset = _add_transforms(
-      test_dataset, params.data.test_transforms, params.data.options, 'test')
+      test_dataset, params.data.test_transforms, params.data.options,
+      expname, cachefiles, 'test')
 
   # Set the dataset options.
   train_dataset = _set_dataset_options(train_dataset, params.data.options)
@@ -232,9 +195,60 @@ def _setup_datasets(params, expname):
   return datasets, files, cachefiles
 
 
+def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
+  """Add configured transforms to dataset.
+
+  Args:
+    dataset: A `tf.data.Dataset`.
+    transforms: A list of `DataTransformConfig`.
+    options: A `DataOptionsConfig`.
+    expname: A `str`. The experiment name.
+    cachefiles: A list of cache files.
+    dstype: The type of this dataset. One of `'train'`, `'val'` or `'test'`.
+
+  Returns:
+    A `tf.data.Dataset` and a list of cache files.
+  """
+  for transform in transforms or []:
+    if transform.type == 'batch':
+      dataset = dataset.batch(
+          transform.batch.batch_size,
+          drop_remainder=transform.batch.drop_remainder,
+          num_parallel_calls=transform.batch.num_parallel_calls,
+          deterministic=transform.batch.deterministic)
+
+    elif transform.type == 'cache':
+      # Delete the cache file if it exists.
+      cachefile = f'{transform.cache.filename}.{expname}.{dstype}'
+      cachefiles.append(cachefile)
+      for file in glob.glob(cachefile + '*'):
+        os.remove(file)
+      dataset = dataset.cache(filename=cachefile)
+
+    elif transform.type == 'map':
+      map_func = objects.get_layer(transform.map.map_func)
+      dataset = dataset.map(
+          _get_map_func(map_func, transform.map.component),
+          num_parallel_calls=transform.map.num_parallel_calls,
+          deterministic=transform.map.deterministic)
+
+    elif transform.type == 'shuffle':
+      if dstype != 'train' and options.shuffle_training_only:
+        continue
+      dataset = dataset.shuffle(
+          transform.shuffle.buffer_size,
+          seed=transform.shuffle.seed,
+          reshuffle_each_iteration=transform.shuffle.reshuffle_each_iteration)
+
+    else:
+      raise ValueError(f"Unknown transform type: {transform.type}")
+
+  return dataset, cachefiles
+
+
 def _set_dataset_options(dataset, options_config):
   """Set dataset options.
-  
+
   Args:
     dataset: A `tf.data.Dataset`.
     options_config: A `DataOptionsConfig`.
@@ -248,16 +262,18 @@ def _set_dataset_options(dataset, options_config):
   options = tf.data.Options()
 
   if options_config.max_intra_op_parallelism is not None:
-    options.threading.max_intra_op_parallelism = options_config.max_intra_op_parallelism
+    options.threading.max_intra_op_parallelism = (
+        options_config.max_intra_op_parallelism)
   if options_config.private_threadpool_size is not None:
-    options.threading.private_threadpool_size = options_config.private_threadpool_size
-  
+    options.threading.private_threadpool_size = (
+        options_config.private_threadpool_size)
+
   return dataset.with_options(options)
 
 
 def _train_model(params, expdir, datasets):
   """Create and train a model.
-  
+
   Args:
     params: A `TrainModelWorkflowConfig`.
     expdir: Path to the experiment directory.
@@ -354,15 +370,20 @@ def _do_predictions(params, model, datasets, files, expdir):
       y_pred = model(x, training=False)
 
       x = _flatten_and_unbatch_nested_tensors(x)
-      y = _flatten_and_unbatch_nested_tensors(y) or itertools.repeat(None)
-      y_pred = _flatten_and_unbatch_nested_tensors(y_pred) or itertools.repeat(None)
+      y = _flatten_and_unbatch_nested_tensors(y)
+      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)
+
+      # y and y_pred may be empty. Make sure we can iterate through them anyway.
+      y = y or itertools.repeat(None)
+      y_pred = y_pred or itertools.repeat(None)
 
       # For each element in batch.
       for e_x, e_y, e_y_pred in zip(x, y, y_pred):
         d = {}
         d.update({input_names[idx]: value for idx, value in enumerate(e_x)})
         d.update({output_names[idx]: value for idx, value in enumerate(e_y)})
-        d.update({output_names[idx] + '_pred': value for idx, value in enumerate(e_y_pred)})
+        d.update({output_names[idx] + '_pred': value
+                  for idx, value in enumerate(e_y_pred)})
         d = {k: v.numpy() for k, v in d.items()}
 
         file_path = os.path.join(path, os.path.basename(files[name].pop(0)))
@@ -375,7 +396,7 @@ def _do_predictions(params, model, datasets, files, expdir):
 
 def _clean_up(cachefiles):
   """Clean up.
-  
+
   Args:
     cachefiles: A list of cachefiles to be deleted.
   """
@@ -386,7 +407,7 @@ def _clean_up(cachefiles):
 
 def _parse_spec_config(spec_config):
   """Parse spec configuration.
-  
+
   Converts a list of `TensorSpecConfig` to a nested structure of
   `tf.TensorSpec`.
 
@@ -408,26 +429,27 @@ def _parse_spec_config(spec_config):
         "names.")
 
   if spec_config[0].name is not None:
-    return {spec.name: tf.TensorSpec(spec.shape, spec.dtype, spec.name) for spec in spec_config}
+    return {spec.name: tf.TensorSpec(
+        spec.shape, spec.dtype, spec.name) for spec in spec_config}
   else:
     return [tf.TensorSpec(spec.shape, spec.dtype) for spec in spec_config]
 
 
 def _get_map_func(map_func, component=None):
 
-    if component is None:
-      return map_func
+  if component is None:
+    return map_func
 
-    if isinstance(component, (int, str)):
-      component = [component]
+  if isinstance(component, (int, str)):
+    component = [component]
 
-    def _map_func(*args):
-      args = list(args)
-      for c in component:
-        args[c] = map_func(args[c])
-      return tuple(args)
+  def _map_func(*args):
+    args = list(args)
+    for c in component:
+      args[c] = map_func(args[c])
+    return tuple(args)
 
-    return _map_func
+  return _map_func
 
 
 def _process_callbacks(params, expdir, datasets):
@@ -497,7 +519,7 @@ def _flatten_and_unbatch_nested_tensors(structure):
 
 
 def _get_checkpoint_callback(params, expdir, kwargs=None):
-  
+
   if not params.training.use_default_callbacks and kwargs is None:
     return None
 

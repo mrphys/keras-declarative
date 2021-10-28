@@ -78,7 +78,7 @@ def read_distributed_hdf5(dirpath, prefixes=None, indices=None):
 
   Args:
     dirpath: Path to a directory.
-    prefixes: A `str` or list of `str`. The prefixes of the files to read. 
+    prefixes: A `str` or list of `str`. The prefixes of the files to read.
     indices: An `int` or list of `int`. The indices of the files to read.
 
   Returns:
@@ -96,11 +96,12 @@ def read_distributed_hdf5(dirpath, prefixes=None, indices=None):
   return data
 
 
-def write_distributed_hdf5(dirpath, data, prefixes, indices=None, overwrite=False):
+def write_distributed_hdf5(dirpath, data, prefixes,
+                           indices=None, overwrite=False):
   """Write a distributed HDF5 dataset.
-  
+
   Writes data to a set of HDF5 files at the specified path.
-  
+
   This function has several modes:
 
   * If `prefixes` is a `str` and `indices` is `None`, all files are saved with
@@ -119,6 +120,9 @@ def write_distributed_hdf5(dirpath, data, prefixes, indices=None, overwrite=Fals
     indices: An `int` or a list of `int`. The indices of the new files.
     overwrite: A `bool`. If `True`, overwrites the contents of `dirpath`, if
       any.
+
+  Raises:
+    ValueError: If any of the arguments is invalid.
   """
   # Accept tuples.
   if isinstance(prefixes, tuple):
@@ -177,11 +181,15 @@ def get_distributed_hdf5_filenames(dirpath, prefixes=None, indices=None):
 
   Args:
     dirpath: Path to a directory.
-    prefixes: A `str` or list of `str`. The prefixes of the files to read. 
+    prefixes: A `str` or list of `str`. The prefixes of the files to read.
     indices: An `int` or list of `int`. The indices of the files to read.
 
   Returns:
     A list of filenames.
+
+  Raises:
+    OSError: If `dirpath` is not a directory or does not exist.
+    ValueError: If any of the arguments is invalid.
   """
   # Verify that directory exists.
   if not os.path.isdir(dirpath):
@@ -229,12 +237,15 @@ def get_distributed_hdf5_filenames(dirpath, prefixes=None, indices=None):
 
 def get_distributed_hdf5_prefixes_and_indices(dirpath):
   """Get the prefixes and indices of a distributed HDF5 dataset.
-  
+
   Args:
     dirpath: Path to a directory.
 
   Returns:
     A tuple containing a list of prefixes and a list of indices.
+
+  Raises:
+    OSError: If `dirpath` is not a directory or does not exist.
   """
   # Verify that directory exists.
   if not os.path.isdir(dirpath):
@@ -272,7 +283,7 @@ def get_distributed_hdf5_indices(dirpath, prefix):
 
 def _assemble_filenames(dirpath, prefixes, indices):
   """Assemble filenames from directory, prefixes and indices.
-  
+
   Args:
     dirpath: Path to a directory.
     prefixes: A list of filename prefixes.
@@ -280,10 +291,13 @@ def _assemble_filenames(dirpath, prefixes, indices):
 
   Returns:
     A list of filenames.
+
+  Raises:
+    ValueError: If any of the arguments is invalid.
   """
   if not isinstance(prefixes, list):
-      raise ValueError(f"`prefixes` must be a `list` but got type: "
-                       f"{type(prefixes).__name__}")
+    raise ValueError(f"`prefixes` must be a `list` but got type: "
+                     f"{type(prefixes).__name__}")
 
   if not isinstance(indices, list):
     raise ValueError(f"`indices` must be an `list` but got type: "

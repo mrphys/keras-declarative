@@ -20,6 +20,10 @@ from typing import List, Union, Optional
 from official.modeling import hyperparams
 
 
+# NOTE: This file is more easily read from the bottom up, as the more generic
+# configuration elements are at the bottom and become more specific towards the
+# top.
+
 
 @dataclasses.dataclass
 class DataSplitConfig(hyperparams.Config):
@@ -116,30 +120,73 @@ class DataConfig(hyperparams.Config):
   train_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
   val_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
   test_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  train_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
-  val_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
-  test_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list)
+  train_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  val_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  test_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
   options: DataOptionsConfig = DataOptionsConfig()
 
 
 @dataclasses.dataclass
 class ExperimentConfig(hyperparams.Config):
-  """Experiment configuration."""
-  name: str = None
-  path: str = None
+  """Experiment configuration.
+
+  Attributes:
+    name: The name of this experiment. Defaults to
+      `<config_filename>_<datetime>`.
+    path: The path to this experiment. Results will be saved in a new directory
+      `path/name`. Defaults to current working directory.
+    seed: A global seed to be used for all random number generators.
+  """
+  name: Optional[str] = None
+  path: Optional[str] = None
   seed: Optional[int] = None
 
 
 @dataclasses.dataclass
 class ModelConfig(hyperparams.Config):
-  """Model configuration."""
-  network: ObjectConfig = ObjectConfig()
+  """Model configuration.
+
+  Attributes:
+    network: A `str` or `ObjectConfig` defining a `tf.keras.layers.Layer` or a
+      list thereof, implementing a sequential network architecture.
+    input_spec: A list of `TensorSpecConfig` defining the model input
+      specification. If not specified, we will attempt to infer the input
+      specification from the training dataset.
+  """
+  network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
 
 
 @dataclasses.dataclass
 class TrainingConfig(hyperparams.Config):
-  """Training configuration."""
+  """Training configuration.
+
+  See `tf.keras.Model.compile` and `tf.keras.Model.fit` for more information
+  about these attributes.
+
+  Attributes:
+    optimizer: A `str` or `ObjectConfig` defining a
+      `tf.keras.optimizers.Optimizer`.
+    loss: A `str` or `ObjectConfig` defining a `tf.keras.losses.Loss` or a list
+      thereof.
+    metrics: A list of `str` or `ObjectConfig` defining a list of
+      `tf.keras.metrics.Metric`.
+    loss_weights: A list of `float` scalars to weight the different loss
+      functions.
+    weighted_metrics: A list of `str` or `ObjectConfig` defining a list of
+      `tf.keras.metrics.Metric`.
+    run_eagerly: A `bool`. If true, run the model eagerly, without creating a
+      graph.
+    steps_per_execution: An `int`. The number of batches to run during each
+      graph call.
+    epochs: An `int`. The number of epochs to train the model.
+    verbose: An `int`. The verbosity mode.
+    callbacks: A list of `str` or `ObjectConfig` defining a list of
+      `tf.keras.callbacks.Callback`.
+    use_default_callbacks: A `bool`. If true, a `ModelCheckpoint` callback and a
+      `TensorBoard` callback will be added automatically, without the need to
+      specify them explicitly.
+  """
   optimizer: ObjectConfig = 'RMSprop'
   loss: List[ObjectConfig] = dataclasses.field(default_factory=list)
   metrics: List[ObjectConfig] = dataclasses.field(default_factory=list)
@@ -155,13 +202,26 @@ class TrainingConfig(hyperparams.Config):
 
 @dataclasses.dataclass
 class PredictConfig(hyperparams.Config):
-  """Prediction configuration."""
+  """Prediction configuration.
+
+  Attributes:
+    datasets: A string or list of strings with the datasets to obtain and store
+      predictions for. Can include the strings `'train'`, `'val'` and `'test'`.
+  """
   datasets: List[str] = 'test'
 
 
 @dataclasses.dataclass
 class TrainModelWorkflowConfig(hyperparams.Config):
-  """Train model workflow configuration."""
+  """Train model workflow configuration.
+
+  Attributes:
+    experiment: An `ExperimentConfig`. General experiment configuration.
+    data: A `DataConfig`. The dataset/s configuration.
+    model: A `ModelConfig`. The model configuration.
+    training: A `TrainingConfig`. The training configuration.
+    predict: A `PredictConfig`. The prediction configuration.
+  """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
