@@ -46,7 +46,8 @@ setup(
     zip_safe=True,
     entry_points={
         'console_scripts': [
-            'keras.train_model = keras_declarative.cli:train_model'
+            'keras.train_model = keras_declarative.cli:train_model',
+            'keras.test_model = keras_declarative.cli:test_model'
         ]
     },
     classifiers=[

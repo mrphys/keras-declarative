@@ -60,6 +60,15 @@ def train_model(config_file): # pylint: disable=missing-raises-doc
     raise err
 
 
+def test_model(config_file): # pylint: disable=missing-raises-doc
+  """Test an existing model.
+
+  Args:
+    config_file: A list of paths to the YAML configuration files.
+  """
+  raise NotImplementedError()
+
+
 def _set_global_config(params):
   """Set global configuration.
 
