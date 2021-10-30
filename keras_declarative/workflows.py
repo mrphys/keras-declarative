@@ -41,16 +41,21 @@ def train_model(config_file): # pylint: disable=missing-raises-doc
     config_file: A list of paths to the YAML configuration files.
   """
   # Get default config for this experiment.
-  params = config.TrainModelWorkflowConfig()
+  serialized_params = config.TrainModelWorkflowConfig()
 
   # Do overrides from from `config_file`.
   for file in config_file or []:
-    params = hyperparams.override_params_dict(params, file, is_strict=False)
+    serialized_params = hyperparams.override_params_dict(
+        serialized_params, file, is_strict=False)
+
+  # Deserialize special objects such as random number generators and tunable
+  # hyperparameters.
+  params = config.deserialize_special_objects(serialized_params)
 
   cachefiles = []
   try:
-    _set_global_config(params)
-    expname, expdir = _setup_directory(params, config_file)
+    _set_global_config(serialized_params)
+    expname, expdir = _setup_directory(serialized_params, config_file)
     datasets, files, cachefiles = _setup_datasets(params, expname)
     model = _train_model(params, expdir, datasets)
     _do_predictions(params, model, datasets, files, expdir)
@@ -67,16 +72,21 @@ def test_model(config_file): # pylint: disable=missing-raises-doc
     config_file: A list of paths to the YAML configuration files.
   """
   # Get default config for this experiment.
-  params = config.TestModelWorkflowConfig()
+  serialized_params = config.TestModelWorkflowConfig()
 
   # Do overrides from from `config_file`.
   for file in config_file or []:
-    params = hyperparams.override_params_dict(params, file, is_strict=False)
+    serialized_params = hyperparams.override_params_dict(
+        serialized_params, file, is_strict=False)
+
+  # Deserialize special objects such as random number generators and tunable
+  # hyperparameters.
+  params = config.deserialize_special_objects(serialized_params)
 
   cachefiles = []
   try:
-    _set_global_config(params)
-    expname, expdir = _setup_directory(params, config_file)
+    _set_global_config(serialized_params)
+    expname, expdir = _setup_directory(serialized_params, config_file)
     datasets, files, cachefiles = _setup_datasets(params, expname)
     model = _load_model(params)
     _do_predictions(params, model, datasets, files, expdir)
