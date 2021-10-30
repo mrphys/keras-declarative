@@ -17,6 +17,8 @@
 import dataclasses
 from typing import List, Union, Optional
 
+import tensorflow as tf
+
 from official.modeling import hyperparams
 
 
@@ -28,8 +30,8 @@ from official.modeling import hyperparams
 @dataclasses.dataclass
 class DataSplitConfig(hyperparams.Config):
   """Data split configuration."""
-  train: float = None
-  val: float = None
+  train: float = 0.0
+  val: float = 0.0
   test: float = 0.0
   mode: str = 'random'
 
@@ -51,17 +53,10 @@ class TensorSpecConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class GenericConfig(hyperparams.Config):
-  """Generic config."""
-  def _set(self, k, v):
-    self.__dict__[k] = v
-
-
-@dataclasses.dataclass
 class ObjectConfig(hyperparams.Config):
   """Object configuration."""
   class_name: str = None
-  config: GenericConfig = GenericConfig()
+  config: hyperparams.ParamsDict = hyperparams.ParamsDict()
 
 
 @dataclasses.dataclass
@@ -143,7 +138,7 @@ class ExperimentConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class ModelConfig(hyperparams.Config):
+class NewModelConfig(hyperparams.Config):
   """Model configuration.
 
   Attributes:
@@ -155,6 +150,25 @@ class ModelConfig(hyperparams.Config):
   """
   network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+
+
+@dataclasses.dataclass
+class ExistingModelConfig(hyperparams.Config):
+  """Existing model configuration.
+  
+  Attributes:
+    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
+      loads this model ignoring the remaining arguments.
+  """
+  path: str = None
+
+
+@dataclasses.dataclass
+class ModelConfig(hyperparams.OneOfConfig):
+  """Model configuration."""
+  type: str = 'new'
+  new: NewModelConfig = NewModelConfig()
+  existing: ExistingModelConfig = ExistingModelConfig()
 
 
 @dataclasses.dataclass
@@ -227,3 +241,135 @@ class TrainModelWorkflowConfig(hyperparams.Config):
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()
   predict: PredictConfig = PredictConfig()
+
+
+@dataclasses.dataclass
+class TestModelWorkflowConfig(hyperparams.Config):
+  """Test model workflow configuration.
+  
+  Attributes:
+    experiment: An `ExperimentConfig`. General experiment configuration.
+    data: A `DataConfig`. The dataset/s configuration.
+    model: An `ExistingModelConfig`. The model configuration.
+    predict: A `PredictConfig`. The prediction configuration.
+  """
+  experiment: ExperimentConfig = ExperimentConfig()
+  data: DataConfig = DataConfig()
+  model: ExistingModelConfig = ExistingModelConfig()
+  predict: PredictConfig = PredictConfig()
+
+
+def deserialize_special_objects(params):
+  """Deserialize special objects.
+
+  Special objects include random numbers, random number generators and tunable
+  hyperparameters.
+
+  Note that the output of this function can no longer be safely serialized and
+  should not be written to YAML.
+
+  Args:
+    params: A `hyperparams.Config`.
+
+  Returns:
+    A non-serializable `hyperparams.Config`.
+  """
+  for k, v in params.__dict__.items():
+
+    if _is_special_config(v):
+      params.__dict__[k] = _parse_special_config(v)
+    
+    elif isinstance(v, hyperparams.ParamsDict):
+      params.__dict__[k] = deserialize_special_objects(v)
+
+    elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+      for i, e in enumerate(v):
+        if isinstance(e, hyperparams.ParamsDict):
+          params.__dict__[k][i] = deserialize_special_objects(e)
+
+  return params
+
+
+def _parse_special_config(config):
+  """Parse a special object configuration.
+
+  Args:
+    config: A `hyperparams.ParamsDict` defining a valid special configuration.
+
+  Returns:
+    The corresponding special object.
+  """
+  if not _is_special_config(config):
+    raise ValueError(f"Not a valid special configuration: {config}")
+
+  obj_type, obj_config = next(iter(config.as_dict().items()))
+  obj_type = obj_type[1:]
+
+  if obj_type == 'rng':
+    return _get_rng(obj_config)
+
+  elif obj_type == 'random':
+    return _get_rng(obj_config)()
+
+  else:
+    raise ValueError(f"Unknown special object type: {obj_type}")
+
+
+def _get_rng(config):
+  """Get a random number generator from the given config.
+  
+  Args:
+    rng_config: An RNG config.
+
+  Returns:
+    A callable with no arguments which returns random numbers according to the
+    specified configuration.
+  """
+  if 'type' not in config:
+    raise ValueError(f"Invalid RNG config: {config}")
+  rng_type = config['type']
+
+  if rng_type not in config:
+    rng_kwargs = {}
+  else:
+    rng_kwargs = config[rng_type]
+
+  rng = tf.random.get_global_generator()
+
+  rng_func = {
+      'binomial': rng.binomial,
+      'normal': rng.normal,
+      'truncated_normal': rng.truncated_normal,
+      'uniform': rng.uniform
+  }
+
+  if rng_type not in rng_func:
+    raise ValueError(f"Unknown RNG type: {rng_type}")
+
+  return lambda: rng_func[rng_type](**rng_kwargs)    
+
+
+def _is_special_config(config):
+  """Check if input is a valid special config.
+
+  Args:
+    config: A `hyperparams.ParamsDict`.
+
+  Returns:
+    True if input is a valid special config, false otherwise.
+  """
+  # Must by an object of type `ParamsDict`.
+  if not isinstance(config, hyperparams.ParamsDict):
+    return False  
+  
+  # Must have one key.
+  d = config.as_dict()
+  if not len(d) == 1:
+    return False
+
+  # Key must be a string starting with dollar sign $.
+  k = next(iter(d)) # First key in dict. 
+  if not isinstance(k, str) or not k.startswith('$'):
+    return False
+
+  return True
