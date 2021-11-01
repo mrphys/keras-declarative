@@ -27,6 +27,7 @@ import inspect
 import tensorflow as tf
 
 from keras_declarative import config as config_module
+from keras_declarative import predicates
 
 
 def get_list(get_fn):
@@ -117,6 +118,19 @@ def get_optimizer(identifier):
     A Keras optimizer as a class instance.
   """
   return _get(identifier, _OPTIMIZER_OBJECTS, 'optimizer')
+
+
+def get_predicate(identifier):
+  """Retrieve a predicate as a class instance.
+  
+  Args:
+    identifier: A predicate identifier. Must be a string, a dictionary, an
+      `ObjectConfig` or `None`.
+
+  Returns:
+    A predicate as a class instance.
+  """
+  return _get(identifier, _PREDICATE_OBJECTS, 'predicate')
 
 
 def _get(identifier, objects, objtype):
@@ -212,6 +226,10 @@ _OPTIMIZER_MODULES = [
   tf.keras.optimizers
 ]
 
+_PREDICATE_MODULES = [
+  predicates
+]
+
 
 try:
   import tensorflow_mri as tfmr
@@ -228,6 +246,7 @@ _LAYER_OBJECTS = None
 _LOSS_OBJECTS = None
 _METRIC_OBJECTS = None
 _OPTIMIZER_OBJECTS = None
+_PREDICATE_OBJECTS = None
 
 
 def discover_objects(custom_modules=None):
@@ -244,6 +263,7 @@ def discover_objects(custom_modules=None):
   global _LOSS_OBJECTS
   global _METRIC_OBJECTS
   global _OPTIMIZER_OBJECTS
+  global _PREDICATE_OBJECTS
 
   custom_modules = custom_modules or []
 
@@ -260,7 +280,9 @@ def discover_objects(custom_modules=None):
                                   tf.keras.metrics.Metric)
 
   _OPTIMIZER_OBJECTS = _find_objects(_OPTIMIZER_MODULES + custom_modules,
-                                    tf.keras.optimizers.Optimizer)
+                                     tf.keras.optimizers.Optimizer)
+
+  _PREDICATE_OBJECTS = _find_objects(_PREDICATE_MODULES, predicates.Predicate)
 
 
 discover_objects()

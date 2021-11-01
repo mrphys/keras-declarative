@@ -75,6 +75,12 @@ class CacheTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class FilterTransformConfig(hyperparams.Config):
+  """Shuffle transform configuration."""
+  predicate: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class MapTransformConfig(hyperparams.Config):
   """Data transform configuration."""
   map_func: ObjectConfig = ObjectConfig()
@@ -97,6 +103,7 @@ class DataTransformConfig(hyperparams.OneOfConfig):
   type: str = None
   batch: BatchTransformConfig = BatchTransformConfig()
   cache: CacheTransformConfig = CacheTransformConfig()
+  filter: FilterTransformConfig = FilterTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
   shuffle: ShuffleTransformConfig = ShuffleTransformConfig()
 

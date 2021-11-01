@@ -261,6 +261,10 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
         os.remove(file)
       dataset = dataset.cache(filename=cachefile)
 
+    elif transform.type == 'filter':
+      predicate = objects.get_predicate(transform.filter.predicate)
+      dataset = dataset.filter(predicate)
+
     elif transform.type == 'map':
       map_func = objects.get_layer(transform.map.map_func)
       dataset = dataset.map(
@@ -415,7 +419,12 @@ def _do_predictions(params, model, datasets, files, expdir):
     path = os.path.join(pred_path, name)
     tf.io.gfile.makedirs(path)
 
-    progbar = tf.keras.utils.Progbar(dataset.cardinality().numpy())
+    # Get number of elements.
+    n = dataset.cardinality().numpy()
+    if n < 0: # -1 means infinite, -2 means unknown
+      n = None
+
+    progbar = tf.keras.utils.Progbar(n)
 
     for element in dataset:
       x, y, _ = tf.keras.utils.unpack_x_y_sample_weight(element)
