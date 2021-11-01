@@ -284,6 +284,10 @@ def deserialize_special_objects(params):
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for i, e in enumerate(v):
+
+        if _is_special_config(e):
+          params.__dict__[k][i] = _parse_special_config(e)
+
         if isinstance(e, hyperparams.ParamsDict):
           params.__dict__[k][i] = deserialize_special_objects(e)
 
@@ -302,7 +306,8 @@ def _parse_special_config(config):
   if not _is_special_config(config):
     raise ValueError(f"Not a valid special configuration: {config}")
 
-  obj_type, obj_config = next(iter(config.as_dict().items()))
+  d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
+  obj_type, obj_config = next(iter(d.items()))
   obj_type = obj_type[1:]
 
   if obj_type == 'rng':
@@ -359,11 +364,11 @@ def _is_special_config(config):
     True if input is a valid special config, false otherwise.
   """
   # Must by an object of type `ParamsDict`.
-  if not isinstance(config, hyperparams.ParamsDict):
-    return False  
-  
+  if not isinstance(config, (dict, hyperparams.ParamsDict)):
+    return False
+
   # Must have one key.
-  d = config.as_dict()
+  d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
   if not len(d) == 1:
     return False
 

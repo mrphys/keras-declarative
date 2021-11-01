@@ -216,7 +216,7 @@ _OPTIMIZER_MODULES = [
 try:
   import tensorflow_mri as tfmr
   _CALLBACK_MODULES.append(tfmr.callbacks)
-  _LAYER_MODULES.append(tfmr.layers)
+  _LAYER_MODULES.extend([tfmr.layers, tfmr.experimental.layers])
   _LOSS_MODULES.append(tfmr.losses)
   _METRIC_MODULES.append(tfmr.metrics)
 except ImportError:
