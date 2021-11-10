@@ -73,4 +73,4 @@ Available tuners are ``RandomSearch``, ``BayesianOptimization`` and
 https://keras.io/api/keras_tuner/tuners/.
 
 Note that some parameters cannot be tuned. These include all parameters
-under `experiment` and under `data.sources`.
+under ``experiment`` and under ``data.sources``.
