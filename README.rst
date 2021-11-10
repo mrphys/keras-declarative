@@ -68,7 +68,8 @@ The tuner type and options can be specified with ``tuning.tuner`` parameter:
           direction: max
         max_epochs: 100
 
-For a list of available tuners and their options, see
+Available tuners are ``RandomSearch``, ``BayesianOptimization`` and
+``Hyperband``. For more details about these tuners and their options, see
 https://keras.io/api/keras_tuner/tuners/.
 
 Note that some parameters cannot be tuned. These include all parameters
