@@ -20,29 +20,40 @@ validation sets, you may use:
 
 .. code-block:: yaml
 
-  train_transforms: &transforms
-    # Define the list of transforms here.
+  data:
+    train_transforms: &transforms
+      # Define the list of transforms here.
 
-  val_transforms: *transforms
+    val_transforms: *transforms
 
 Hyperparameter Tuning
 ---------------------
 
-Most parameters can be set as tunable using the ``$tunable`` directive.
+Keras Declarative can configure the Keras Tuner to automatically tune one or
+more parameters.
+
+Most parameters can be set as tunable using the ``$tunable`` directive. For
+example, to tune the kernel size of a U-Net model, you might use:
 
 .. code-block:: yaml
 
-  filters:
-    $tunable:
-      type: int
-      int:
-        name: filters
-        min_value: 16
-        max_value: 64
-        step: 16
+  model:
+    network:
+      class_name: UNet
+      config:
+        scales: 3
+        base_filters: 32
+        kernel_size:
+          $tunable:
+            type: int
+            int:
+              name: kernel_size
+              min_value: 3
+              max_value: 7
+              step: 2
 
-Valid types are `boolean`, `choice`, `fixed`, `float` and `int`. For a list of
-valid options, see https://keras.io/api/keras_tuner/hyperparameters/.
+Valid tunable types are `boolean`, `choice`, `fixed`, `float` and `int`. For
+more details, see https://keras.io/api/keras_tuner/hyperparameters/.
 
 The tuner type and options can be specified with ``tuning.tuner`` parameter:
 
