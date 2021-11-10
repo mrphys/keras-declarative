@@ -1,4 +1,5 @@
 h5py
+keras-tuner
 tensorflow
 tensorflow-io
 tf-models-official

@@ -14,13 +14,16 @@
 # ==============================================================================
 """Configuration."""
 
+import copy
 import dataclasses
 from typing import List, Union, Optional
 
+import keras_tuner as kt
 import tensorflow as tf
 
 from official.modeling import hyperparams
 
+from keras_declarative import util
 
 # NOTE: This file is more easily read from the bottom up, as the more generic
 # configuration elements are at the bottom and become more specific towards the
@@ -52,11 +55,8 @@ class TensorSpecConfig(hyperparams.Config):
   dtype: str = 'float32'
 
 
-@dataclasses.dataclass
-class ObjectConfig(hyperparams.Config):
+class ObjectConfig(hyperparams.ParamsDict):
   """Object configuration."""
-  class_name: str = None
-  config: hyperparams.ParamsDict = hyperparams.ParamsDict()
 
 
 @dataclasses.dataclass
@@ -145,7 +145,7 @@ class ExperimentConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class NewModelConfig(hyperparams.Config):
+class ModelConfig(hyperparams.Config):
   """Model configuration.
 
   Attributes:
@@ -154,28 +154,14 @@ class NewModelConfig(hyperparams.Config):
     input_spec: A list of `TensorSpecConfig` defining the model input
       specification. If not specified, we will attempt to infer the input
       specification from the training dataset.
+    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
+      loads this model ignoring the remaining arguments.
+    weights: A `str`. Path to model weights.
   """
   network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class ExistingModelConfig(hyperparams.Config):
-  """Existing model configuration.
-  
-  Attributes:
-    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
-      loads this model ignoring the remaining arguments.
-  """
   path: str = None
-
-
-@dataclasses.dataclass
-class ModelConfig(hyperparams.OneOfConfig):
-  """Model configuration."""
-  type: str = 'new'
-  new: NewModelConfig = NewModelConfig()
-  existing: ExistingModelConfig = ExistingModelConfig()
+  weights: str = None
 
 
 @dataclasses.dataclass
@@ -208,7 +194,7 @@ class TrainingConfig(hyperparams.Config):
       `TensorBoard` callback will be added automatically, without the need to
       specify them explicitly.
   """
-  optimizer: ObjectConfig = 'RMSprop'
+  optimizer: ObjectConfig = ObjectConfig()
   loss: List[ObjectConfig] = dataclasses.field(default_factory=list)
   metrics: List[ObjectConfig] = dataclasses.field(default_factory=list)
   loss_weights: List[float] = dataclasses.field(default_factory=list)
@@ -233,6 +219,18 @@ class PredictConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class TuningConfig(hyperparams.Config):
+  """Tuning configuration.
+  
+  Attributes:
+    tuner: An `ObjectConfig` definining the tuner configuration. For a list of
+      valid tuners and their configurations, see
+      https://keras.io/api/keras_tuner/tuners/.
+  """
+  tuner: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class TrainModelWorkflowConfig(hyperparams.Config):
   """Train model workflow configuration.
 
@@ -242,12 +240,14 @@ class TrainModelWorkflowConfig(hyperparams.Config):
     model: A `ModelConfig`. The model configuration.
     training: A `TrainingConfig`. The training configuration.
     predict: A `PredictConfig`. The prediction configuration.
+    tuning: A `TuningConfig`. The tuning configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()
   predict: PredictConfig = PredictConfig()
+  tuning: TuningConfig = TuningConfig()
 
 
 @dataclasses.dataclass
@@ -257,12 +257,12 @@ class TestModelWorkflowConfig(hyperparams.Config):
   Attributes:
     experiment: An `ExperimentConfig`. General experiment configuration.
     data: A `DataConfig`. The dataset/s configuration.
-    model: An `ExistingModelConfig`. The model configuration.
+    model: A `ModelConfig`. The model configuration.
     predict: A `PredictConfig`. The prediction configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
-  model: ExistingModelConfig = ExistingModelConfig()
+  model: ModelConfig = ModelConfig()
   predict: PredictConfig = PredictConfig()
 
 
@@ -323,6 +323,9 @@ def _parse_special_config(config):
   elif obj_type == 'random':
     return _get_rng(obj_config)()
 
+  elif obj_type == 'tunable':
+    return _get_tunable(obj_config)
+
   else:
     raise ValueError(f"Unknown special object type: {obj_type}")
 
@@ -361,6 +364,38 @@ def _get_rng(config):
   return lambda: rng_func[rng_type](**rng_kwargs)    
 
 
+def _get_tunable(config):
+  """Get a hyperparameter from the given config.
+  
+  Args:
+    hparam_config: A hyperparameter config dictionary.
+
+  Returns:
+    A `TunablePlaceholder`.
+  """
+  if 'type' not in config:
+    raise ValueError(f"Invalid hyperparameter config: {config}")
+  tunable_type = config['type']
+
+  if tunable_type not in config:
+    tunable_kwargs = {}
+  else:
+    tunable_kwargs = config[tunable_type]
+
+  types_dict = {
+      'boolean': 'Boolean',
+      'choice': 'Choice',
+      'fixed': 'Fixed',
+      'float': 'Float',
+      'int': 'Int'
+  }
+
+  if tunable_type not in types_dict:
+    raise ValueError(f"Unknown hyperparameter type: {tunable_type}")
+
+  return util.TunablePlaceholder(types_dict[tunable_type], tunable_kwargs)
+
+
 def _is_special_config(config):
   """Check if input is a valid special config.
 
@@ -385,3 +420,69 @@ def _is_special_config(config):
     return False
 
   return True
+
+
+def find_hyperparameters(params, hp=None):
+  """Find all tunable hyperparameters in config.
+
+  Args:
+    params: A `hyperparams.Config`.
+    hp: A `kt.HyperParameters` object.
+
+  Returns:
+    A non-serializable `hyperparams.Config`.
+  """
+  if hp is None:
+    hp = kt.HyperParameters()
+
+  for v in params.__dict__.values():
+
+    if isinstance(v, util.TunablePlaceholder):
+      _ = v(hp)
+    
+    elif isinstance(v, hyperparams.ParamsDict):
+      hp = find_hyperparameters(v, hp=hp)
+
+    elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+      for e in v:
+
+        if isinstance(e, util.TunablePlaceholder):
+          _ = e(hp)
+
+        if isinstance(e, hyperparams.ParamsDict):
+          hp = find_hyperparameters(e, hp=hp)
+
+  return hp
+
+
+def inject_hyperparameters(params, hp):
+  """Injects current hyperparameters into params dict.
+
+  Args:
+    params: A `hyperparams.Config`, potentially containing hyperparameter
+      placeholders.
+    hp: A `kt.HyperParameters` object.
+
+  Returns:
+    A `hyperparams.Config` with the injected hyperparameter values.
+  """
+  params = copy.deepcopy(params)
+
+  for k, v in params.__dict__.items():
+
+    if isinstance(v, util.TunablePlaceholder):
+      params.__dict__[k] = v(hp)
+    
+    elif isinstance(v, hyperparams.ParamsDict):
+      params.__dict__[k] = inject_hyperparameters(v, hp)
+
+    elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+      for i, e in enumerate(v):
+
+        if isinstance(v, util.TunablePlaceholder):
+          params.__dict__[k][i] = e(hp)
+
+        if isinstance(e, hyperparams.ParamsDict):
+          params.__dict__[k][i] = inject_hyperparameters(e, hp)
+
+  return params

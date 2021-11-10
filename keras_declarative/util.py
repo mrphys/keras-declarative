@@ -14,6 +14,7 @@
 # ==============================================================================
 """Utilities."""
 
+import keras_tuner as kt
 import tensorflow as tf
 
 
@@ -49,3 +50,68 @@ def model_from_layers(layers, input_spec):
 
   # Build model using functional API.
   return tf.keras.Model(inputs=inputs, outputs=outputs)
+
+
+class TunablePlaceholder(object):
+  """A hyperparameter placeholder.
+
+  Args:
+    type: A string. The type of the hyperparameter.
+    kwargs: A dictionary. The keyword arguments defining the hyperparameter.
+  """
+  def __init__(self, type, kwargs):
+    self.type = type
+    self.kwargs = kwargs
+
+  def __call__(self, hp):
+    return getattr(hp, self.type)(**self.kwargs)
+
+
+class TunerMixin(kt.Tuner):
+  """Mixin for Keras Tuner tuners."""
+  def _configure_tensorboard_dir(self, callbacks, trial, execution=0):
+    super()._configure_tensorboard_dir(callbacks, trial, execution)
+
+    for callback in callbacks:
+      if callback.__class__.__name__ == "TensorBoardImages":
+        # Patch TensorBoardImages log_dir.
+        logdir = self._get_tensorboard_dir(
+            callback.log_dir, trial.trial_id, execution
+        )
+        callback.log_dir = logdir
+
+
+class RandomSearch(TunerMixin, kt.RandomSearch):
+  """Random search tuner with mixins."""
+
+
+class BayesianOptimization(TunerMixin, kt.BayesianOptimization):
+  """Bayesian optimization tuner with mixins."""
+
+
+class Hyperband(TunerMixin, kt.Hyperband):
+  """Hyperband tuner with mixins."""
+  def _build_hypermodel(self, hp):
+    """Builds a hypermodel.
+    
+    There seems to be a bug in the `kt.Hyperband` implementation. It overrides a
+    `_build_model` function which does not seem to exist in the `kt.Tuner` base
+    class. As a result, model weights are not loaded from previous trials as
+    would be expected.
+
+    This function is the same as `Hyperband._build_model` but has the
+    correct name `_build_hypermodel`.
+    """
+    model = super()._build_hypermodel(hp)
+
+    # Load previous checkpoint if requested.
+    if "tuner/trial_id" in hp.values:
+      trial_id = hp.values["tuner/trial_id"]
+      history_trial = self.oracle.get_trial(trial_id)
+      
+      model.load_weights(
+          self._get_checkpoint_fname(
+              history_trial.trial_id, history_trial.best_step
+          )
+      )
+    return model

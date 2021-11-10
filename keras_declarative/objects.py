@@ -24,6 +24,7 @@ with respect to the Keras registry:
 
 import inspect
 
+import keras_tuner as kt
 import tensorflow as tf
 
 from keras_declarative import config as config_module
@@ -153,6 +154,22 @@ def _get(identifier, objects, objtype):
   if identifier is None:
     return None
 
+  class_name, config = class_and_config_for_serialized_object(identifier)
+
+  if class_name not in objects:
+    raise ValueError(f"No known {objtype} with name: {class_name}")
+  obj = objects[class_name]
+
+  try:
+    return obj(**config)
+  except Exception as e:
+    raise RuntimeError(
+        f"An error occurred while initializing {class_name} with parameters: "
+        f"{config}") from e
+
+
+def class_and_config_for_serialized_object(identifier):
+  """Returns the class name and config for a serialized object."""
   if isinstance(identifier, config_module.ObjectConfig):
     identifier = {
       'class_name': identifier.class_name,
@@ -165,7 +182,7 @@ def _get(identifier, objects, objtype):
   elif isinstance(identifier, dict):
     if 'class_name' not in identifier or 'config' not in identifier:
       raise ValueError(
-          f"Invalid identifier: {identifier}. Value is not a valid {objtype} "
+          f"Invalid identifier: {identifier}. Value is not a valid "
           f"configuration dictionary.")
     class_name = identifier['class_name']
     config = identifier['config']
@@ -175,16 +192,7 @@ def _get(identifier, objects, objtype):
         f"Invalid identifier: {identifier}. Value must be a string, a "
         f"dictionary or an `ObjectConfig`.")
 
-  if class_name not in objects:
-    raise ValueError(f"No known {objtype} with name: {class_name}")
-  obj = objects[class_name]
-
-  try:
-    return obj(**config)
-  except Exception as e:
-    raise RuntimeError(
-        f"An error occurred while initializing {class_name} with parameters: "
-        f"{config}") from e
+  return class_name, config
 
 
 def _find_objects(modules, objtype):

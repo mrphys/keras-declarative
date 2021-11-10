@@ -22,6 +22,7 @@ import itertools
 import os
 import random
 
+import keras_tuner as kt
 import numpy as np
 import tensorflow as tf
 import tensorflow_io as tfio
@@ -48,21 +49,34 @@ def train_model(config_file): # pylint: disable=missing-raises-doc
     serialized_params = hyperparams.override_params_dict(
         serialized_params, file, is_strict=False)
 
+  # The following procedures do not support special objects. 
+  _set_global_config(serialized_params)
+  expname, expdir = _setup_directory(serialized_params, config_file)
+  sources = _get_data_sources(serialized_params)
+
   # Deserialize special objects such as random number generators and tunable
   # hyperparameters.
   params = config.deserialize_special_objects(serialized_params)
+  hp = config.find_hyperparameters(params)
 
-  cachefiles = []
-  try:
-    _set_global_config(serialized_params)
-    expname, expdir = _setup_directory(serialized_params, config_file)
-    datasets, files, cachefiles = _setup_datasets(params, expname)
-    model = _train_model(params, expdir, datasets)
-    _do_predictions(params, model, datasets, files, expdir)
-    _clean_up(cachefiles)
-  except BaseException as err:
-    _clean_up(cachefiles)
-    raise err
+  if hp.space:
+    # If a hyperparameter space is defined, launch tuning.
+    hypermodel = HyperModel(params, expname, expdir, sources)
+    tuner = _get_tuner(params, hypermodel, expdir)
+    tuner.search(epochs=params.training.epochs,
+                 callbacks=_get_callbacks(params, expdir, tuning=True))
+
+  else:
+    try:
+      datasets, cachefiles = _build_datasets(params, expname, sources)
+      model = _build_model(params, datasets)
+      model, _ = _train_model(params, expdir, model, datasets)
+      _do_predictions(params, model, datasets, sources, expdir)
+      _clean_up(cachefiles)
+
+    except BaseException as err:
+      _clean_up(cachefiles)
+      raise err
 
 
 def test_model(config_file): # pylint: disable=missing-raises-doc
@@ -83,17 +97,43 @@ def test_model(config_file): # pylint: disable=missing-raises-doc
   # hyperparameters.
   params = config.deserialize_special_objects(serialized_params)
 
-  cachefiles = []
   try:
     _set_global_config(serialized_params)
     expname, expdir = _setup_directory(serialized_params, config_file)
-    datasets, files, cachefiles = _setup_datasets(params, expname)
+    sources = _get_data_sources(params)
+    datasets, cachefiles = _build_datasets(params, expname, sources)
     model = _load_model(params)
-    _do_predictions(params, model, datasets, files, expdir)
+    _do_predictions(params, model, datasets, sources, expdir)
     _clean_up(cachefiles)
+
   except BaseException as err:
     _clean_up(cachefiles)
     raise err
+
+
+class HyperModel(kt.HyperModel):
+  """Custom hypermodel for Keras Declarative."""
+  def __init__(self, params, expname, expdir, sources, **kwargs):
+    super().__init__(**kwargs)
+    self.params = params
+    self.expname = expname
+    self.expdir = expdir
+    self.sources = sources
+    self.datasets = None
+
+  def build(self, hp):
+    """Builds a model."""
+    params = config.inject_hyperparameters(self.params, hp)
+    self.datasets, cachefiles = _build_datasets(
+        params, self.expname, self.sources)
+    _clean_up(cachefiles)
+    return _build_model(params, self.datasets)
+
+  def fit(self, hp, model, *args, **kwargs):
+    """Trains a model."""
+    _, history = _train_model(self.params, self.expdir, model,
+                              self.datasets, *args, **kwargs)
+    return history
 
 
 def _set_global_config(params):
@@ -119,38 +159,29 @@ def _setup_directory(params, config_file):
     The experiment name and the experiment directory.
   """
   path = params.experiment.path or os.getcwd()
-  expname = (params.experiment.name or
-             os.path.splitext(os.path.basename(config_file[-1]))[0])
-  expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
+  if params.experiment.name:
+    expname = params.experiment.name
+  else:
+    expname = os.path.splitext(os.path.basename(config_file[-1]))[0]
+    expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+
   expdir = os.path.join(path, expname)
   tf.io.gfile.makedirs(expdir)
   hyperparams.save_params_dict_to_yaml(
       params, os.path.join(expdir, 'config.yaml'))
+
   return expname, expdir
 
 
-def _setup_datasets(params, expname):
-  """Set up datasets.
-
-  Args:
-    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
-    expname: A `str`. The experiment name.
-
-  Returns:
-    A tuple of three datasets (train, validation, test), a tuple of three
-    lists of files and a list of cache files.
-
-  Raises:
-    ValueError: If `data.sources` was not specified.
-  """
+def _get_data_sources(params):
+  """Get training, validation and test HDF5 files."""
   if params.data.sources is None:
     raise ValueError("`data.sources` must be provided.")
 
-  train_files = []
-  val_files = []
-  test_files = []
-
-  cachefiles = []
+  train_sources = []
+  val_sources = []
+  test_sources = []
 
   for source in params.data.sources:
     files = io.get_distributed_hdf5_filenames(source.path, source.prefix)
@@ -164,14 +195,35 @@ def _setup_datasets(params, expname):
     n_val = get_n(source.split.val)
     n_test = get_n(source.split.test)
 
-    train_files.extend(files[0:n_train])
-    val_files.extend(files[n_train:n_train + n_val])
-    test_files.extend(files[n_train + n_val:n_train + n_val + n_test])
+    train_sources.extend(files[0:n_train])
+    val_sources.extend(files[n_train:n_train + n_val])
+    test_sources.extend(files[n_train + n_val:n_train + n_val + n_test])
 
   # Shuffle all the data.
-  random.shuffle(train_files)
-  random.shuffle(val_files)
-  random.shuffle(test_files)
+  random.shuffle(train_sources)
+  random.shuffle(val_sources)
+  random.shuffle(test_sources)
+
+  return train_sources, val_sources, test_sources
+
+
+def _build_datasets(params, expname, sources):
+  """Set up datasets.
+
+  Args:
+    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
+    expname: A `str`. The experiment name.
+    sources: A tuple of three lists. The training files, validation files, and
+      test files.
+
+  Returns:
+    A tuple of three datasets (train, validation, test), a tuple of three
+    lists of files and a list of cache files.
+
+  Raises:
+    ValueError: If `data.sources` was not specified.
+  """
+  train_sources, val_sources, test_sources = sources
 
   # Get specs.
   train_spec = _parse_spec_config(params.data.train_spec)
@@ -190,11 +242,11 @@ def _setup_datasets(params, expname):
 
   # Create datasets.
   train_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(train_files, dtype=tf.string))
+      tf.convert_to_tensor(train_sources, dtype=tf.string))
   val_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(val_files, dtype=tf.string))
+      tf.convert_to_tensor(val_sources, dtype=tf.string))
   test_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(test_files, dtype=tf.string))
+      tf.convert_to_tensor(test_sources, dtype=tf.string))
 
   # Add data read.
   train_dataset = train_dataset.map(
@@ -210,6 +262,7 @@ def _setup_datasets(params, expname):
   test_dataset = test_dataset.map(_get_outputs)
 
   # Add user-specified transforms to each dataset.
+  cachefiles = []
   train_dataset, cachefiles = _add_transforms(
       train_dataset, params.data.train_transforms, params.data.options,
       expname, cachefiles, 'train')
@@ -227,8 +280,8 @@ def _setup_datasets(params, expname):
 
   # Pack and return.
   datasets = train_dataset, val_dataset, test_dataset
-  files = train_files, val_files, test_files
-  return datasets, files, cachefiles
+
+  return datasets, cachefiles
 
 
 def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
@@ -311,29 +364,29 @@ def _set_dataset_options(dataset, options_config):
   return dataset.with_options(options)
 
 
-def _train_model(params, expdir, datasets):
+def _build_model(params, datasets):
   """Train a model.
 
   Args:
     params: A `TrainModelWorkflowConfig`.
-    expdir: Path to the experiment directory.
     datasets: A tuple of three `tf.data.Dataset` (train, val, test).
 
   Returns:
     A trained `tf.keras.Model`.
   """
-  train_dataset, val_dataset, _ = datasets
+  train_dataset, _, _ = datasets
 
-  if params.model.type == 'existing':
-    model = tf.keras.models.load_model(params.model.existing.path)
+  if params.model.path is not None:
+    # Load existing model.
+    model = tf.keras.models.load_model(params.model.path)
 
-  elif params.model.type == 'new':
+  else: # Create new model architecture.
     # Currently we support only layers as network.
-    layer = objects.get_layer(params.model.new.network)
+    layer = objects.get_layer(params.model.network)
 
-    if params.model.new.input_spec:
+    if params.model.input_spec:
       # User specified input spec explicitly, so use that.
-      input_spec = _parse_spec_config(params.model.new.input_spec)
+      input_spec = _parse_spec_config(params.model.input_spec)
 
     else:
       # Model input spec not specified explicitly. Infer from training dataset.
@@ -343,13 +396,15 @@ def _train_model(params, expdir, datasets):
     # Network.
     model = util.model_from_layers(layer, input_spec)
 
+  if params.model.weights is not None:
+    model.load_weights(params.model.weights)
+
   # Print model summary.
   model.summary(line_length=80)
 
   optimizer = objects.get_optimizer(params.training.optimizer)
   loss = objects.get_list(objects.get_loss)(params.training.loss)
   metrics = objects.get_list(objects.get_metric)(params.training.metrics)
-  callbacks = _process_callbacks(params, expdir, datasets)
 
   model.compile(optimizer=optimizer,
                 loss=loss,
@@ -359,15 +414,47 @@ def _train_model(params, expdir, datasets):
                 run_eagerly=params.training.run_eagerly,
                 steps_per_execution=params.training.steps_per_execution)
 
+  return model
+
+
+def _train_model(params, expdir, model, datasets, **kwargs):
+  """Trains a Keras model.
+
+  Args:
+    params: A `TrainModelWorkflowConfig`.
+    expdir: A `str`. The experiment directory.
+    model: A `tf.keras.Model`.
+    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    **kwargs: Keyword arguments to be passed to `fit`. Can be used by a tuner to
+      override `fit` parameters.
+
+  Returns:
+    A trained `tf.keras.Model`.
+  """
+  train_dataset, val_dataset, _ = datasets
+
+  # Get callbacks.
+  callbacks = kwargs.get('callbacks') or _get_callbacks(
+      params, expdir, datasets)
+
+  # Patch TensorBoardImages dataset.
+  for callback in callbacks:
+    if callback.__class__.__name__ == "TensorBoardImages":
+      callback.x = val_dataset
+
+  kwargs['x'] = train_dataset
+  if 'epochs' not in kwargs:
+    kwargs['epochs'] = params.training.epochs
+  if 'verbose' not in kwargs:
+    kwargs['verbose'] = params.training.verbose
+  kwargs['callbacks'] = callbacks
+  kwargs['validation_data'] = val_dataset
+
   print("Training...")
-  model.fit(x=train_dataset,
-            epochs=params.training.epochs,
-            verbose=params.training.verbose,
-            callbacks=callbacks,
-            validation_data=val_dataset)
+  history = model.fit(**kwargs)
   print("Training complete.")
 
-  return model
+  return model, history
 
 
 def _load_model(params):
@@ -379,14 +466,14 @@ def _load_model(params):
   Returns:
     A `tf.keras.Model`.
   """
-  return tf.keras.models.load_model(params.model.existing.path)
+  return tf.keras.models.load_model(params.model.path)
 
 
-def _do_predictions(params, model, datasets, files, expdir):
+def _do_predictions(params, model, datasets, sources, expdir):
 
   print("Predicting...")
   train_dataset, val_dataset, test_dataset = datasets
-  train_files, val_files, test_files = files
+  train_sources, val_sources, test_sources = sources
 
   datasets = {
       'train': train_dataset,
@@ -394,10 +481,10 @@ def _do_predictions(params, model, datasets, files, expdir):
       'test': test_dataset
   }
 
-  files = {
-      'train': train_files,
-      'val': val_files,
-      'test': test_files
+  sources = {
+      'train': train_sources,
+      'val': val_sources,
+      'test': test_sources
   }
 
   if isinstance(params.predict.datasets, str):
@@ -447,7 +534,7 @@ def _do_predictions(params, model, datasets, files, expdir):
                   for idx, value in enumerate(e_y_pred)})
         d = {k: v.numpy() for k, v in d.items()}
 
-        file_path = os.path.join(path, os.path.basename(files[name].pop(0)))
+        file_path = os.path.join(path, os.path.basename(sources[name].pop(0)))
         io.write_hdf5(file_path, d)
 
       progbar.add(1)
@@ -513,9 +600,9 @@ def _get_map_func(map_func, component=None):
   return _map_func
 
 
-def _process_callbacks(params, expdir, datasets):
+def _get_callbacks(params, expdir, datasets=None, tuning=False):
 
-  _, val_dataset, _ = datasets
+  val_dataset = datasets[1] if datasets is not None else None
 
   # Complete callback configs.
   callback_configs = params.training.callbacks
@@ -562,7 +649,9 @@ def _process_callbacks(params, expdir, datasets):
   # Parse callback configs.
   callbacks = objects.get_list(objects.get_callback)(remaining_callback_configs)
 
-  if checkpoint_callback:
+  if checkpoint_callback and not tuning:
+    # We do not add the checkpoint callback if tuning, as it will be added by
+    # the tuner.
     callbacks.append(checkpoint_callback)
   if tensorboard_callback:
     callbacks.append(tensorboard_callback)
@@ -666,6 +755,30 @@ def _get_logs_path(params, expdir):
 def _get_pred_path(params, expdir):
 
   return os.path.join(expdir, 'pred')
+
+
+def _get_tuner(params, hypermodel, expdir):
+  """Get tuner."""
+  if params.tuning.tuner is None:
+    return None
+
+  name, kwargs = objects.class_and_config_for_serialized_object(
+      params.tuning.tuner)
+
+  tuners = {
+      'RandomSearch': util.RandomSearch,
+      'BayesianOptimization': util.BayesianOptimization,
+      'Hyperband': util.Hyperband
+  }
+
+  if 'objective' in kwargs and isinstance(kwargs['objective'], dict):
+    kwargs['objective'] = kt.Objective(**kwargs['objective'])
+
+  kwargs['hypermodel'] = hypermodel
+  kwargs['directory'] = expdir
+  kwargs['project_name'] = 'tuning'
+
+  return tuners[name](**kwargs)
 
 
 class defaultdict(collections.defaultdict):
