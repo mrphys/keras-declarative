@@ -13,21 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 
-FROM tensorflow/tensorflow:2.6.0-gpu
+FROM tensorflow/tensorflow:2.7.0-gpu
 
-ARG TF_VERSION=2.6.0
-ARG TFMR_VERSION=0.7.0
-ARG TFFT_VERSION=0.3.2
-
-# Note: this will stop being necessary once TensorFlow images start using with
-# Ubuntu 20.04, which ships with Python 3.8 by default. 
-RUN add-apt-repository ppa:deadsnakes/ppa
-RUN apt-get update
-RUN apt-get install -y python3.8 python3.8-dev
-RUN python3.8 -m pip install --upgrade pip
+ARG TFMR_VERSION=0.8.0
+ARG TFFT_VERSION=0.4.0
+ARG KDP_VERSION=0.2.0
 
 RUN apt-get install -y libopenexr-dev
 
-RUN python3.8 -m pip install tensorflow==${TF_VERSION}
-RUN python3.8 -m pip install tensorflow-mri==${TFMR_VERSION}
-RUN python3.8 -m pip install tensorflow-nufft==${TFFT_VERSION}
+RUN python -m pip install tensorflow-mri==${TFMR_VERSION}
+RUN python -m pip install tensorflow-nufft==${TFFT_VERSION}
+RUN python -m pip install keras-declarative==${KDP_VERSION}
