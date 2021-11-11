@@ -35,21 +35,21 @@ from keras_declarative import objects
 from keras_declarative import util
 
 
-def train_model(config_file): # pylint: disable=missing-raises-doc
+def train(config_file): # pylint: disable=missing-raises-doc
   """Create and train a new model.
 
   Args:
     config_file: A list of paths to the YAML configuration files.
   """
   # Get default config for this experiment.
-  serialized_params = config.TrainModelWorkflowConfig()
+  serialized_params = config.TrainWorkflowConfig()
 
   # Do overrides from from `config_file`.
   for file in config_file or []:
     serialized_params = hyperparams.override_params_dict(
         serialized_params, file, is_strict=False)
 
-  # The following procedures do not support special objects. 
+  # The following procedures do not support special objects.
   _set_global_config(serialized_params)
   expname, expdir = _setup_directory(serialized_params, config_file)
   sources = _get_data_sources(serialized_params)
@@ -71,7 +71,7 @@ def train_model(config_file): # pylint: disable=missing-raises-doc
       datasets, cachefiles = _build_datasets(params, expname, sources)
       model = _build_model(params, datasets)
       model, _ = _train_model(params, expdir, model, datasets)
-      _do_predictions(params, model, datasets, sources, expdir)
+      _test_model(params, model, datasets, sources, expdir)
       _clean_up(cachefiles)
 
     except BaseException as err:
@@ -79,14 +79,14 @@ def train_model(config_file): # pylint: disable=missing-raises-doc
       raise err
 
 
-def test_model(config_file): # pylint: disable=missing-raises-doc
+def test(config_file): # pylint: disable=missing-raises-doc
   """Test an existing model.
 
   Args:
     config_file: A list of paths to the YAML configuration files.
   """
   # Get default config for this experiment.
-  serialized_params = config.TestModelWorkflowConfig()
+  serialized_params = config.TestWorkflowConfig()
 
   # Do overrides from from `config_file`.
   for file in config_file or []:
@@ -102,8 +102,8 @@ def test_model(config_file): # pylint: disable=missing-raises-doc
     expname, expdir = _setup_directory(serialized_params, config_file)
     sources = _get_data_sources(params)
     datasets, cachefiles = _build_datasets(params, expname, sources)
-    model = _load_model(params)
-    _do_predictions(params, model, datasets, sources, expdir)
+    model = _build_model(params, datasets)
+    _test_model(params, model, datasets, sources, expdir)
     _clean_up(cachefiles)
 
   except BaseException as err:
@@ -129,7 +129,7 @@ class HyperModel(kt.HyperModel):
     _clean_up(cachefiles)
     return _build_model(params, self.datasets)
 
-  def fit(self, hp, model, *args, **kwargs):
+  def fit(self, hp, model, *args, **kwargs): # pylint: disable=unused-argument
     """Trains a model."""
     _, history = _train_model(self.params, self.expdir, model,
                               self.datasets, *args, **kwargs)
@@ -140,7 +140,7 @@ def _set_global_config(params):
   """Set global configuration.
 
   Args:
-    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
   """
   if params.experiment.seed is not None:
     random.seed(params.experiment.seed)
@@ -152,7 +152,7 @@ def _setup_directory(params, config_file):
   """Set up experiment directory.
 
   Args:
-    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     config_file: A list of paths to the YAML configuration files.
 
   Returns:
@@ -175,7 +175,17 @@ def _setup_directory(params, config_file):
 
 
 def _get_data_sources(params):
-  """Get training, validation and test HDF5 files."""
+  """Get training, validation and test HDF5 files.
+
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+
+  Returns:
+    A tuple of three lists of HDF5 files.
+
+  Raises:
+    ValueError: If `data.sources` is `None`.
+  """
   if params.data.sources is None:
     raise ValueError("`data.sources` must be provided.")
 
@@ -211,14 +221,14 @@ def _build_datasets(params, expname, sources):
   """Set up datasets.
 
   Args:
-    params: A `TrainModelWorkflowConfig` or `TestModelWorkflowConfig`.
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     expname: A `str`. The experiment name.
     sources: A tuple of three lists. The training files, validation files, and
       test files.
 
   Returns:
-    A tuple of three datasets (train, validation, test), a tuple of three
-    lists of files and a list of cache files.
+    A tuple of three datasets (train, validation, test) and a list of cache
+    files.
 
   Raises:
     ValueError: If `data.sources` was not specified.
@@ -297,6 +307,9 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
 
   Returns:
     A `tf.data.Dataset` and a list of cache files.
+
+  Raises:
+    ValueError: If a transform is not known or supported.
   """
   for transform in transforms or []:
     if transform.type == 'batch':
@@ -321,7 +334,7 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
     elif transform.type == 'map':
       map_func = objects.get_layer(transform.map.map_func)
       dataset = dataset.map(
-          _get_map_func(map_func, transform.map.component),
+          _maybe_decorate_map_func(map_func, transform.map.component),
           num_parallel_calls=transform.map.num_parallel_calls,
           deterministic=transform.map.deterministic)
 
@@ -368,7 +381,7 @@ def _build_model(params, datasets):
   """Train a model.
 
   Args:
-    params: A `TrainModelWorkflowConfig`.
+    params: A `TrainWorkflowConfig`.
     datasets: A tuple of three `tf.data.Dataset` (train, val, test).
 
   Returns:
@@ -421,7 +434,7 @@ def _train_model(params, expdir, model, datasets, **kwargs):
   """Trains a Keras model.
 
   Args:
-    params: A `TrainModelWorkflowConfig`.
+    params: A `TrainWorkflowConfig`.
     expdir: A `str`. The experiment directory.
     model: A `tf.keras.Model`.
     datasets: A tuple of three `tf.data.Dataset` (train, val, test).
@@ -457,20 +470,16 @@ def _train_model(params, expdir, model, datasets, **kwargs):
   return model, history
 
 
-def _load_model(params):
-  """Load a model.
+def _test_model(params, model, datasets, sources, expdir):
+  """Tests a model.
 
   Args:
-    params: A `TestModelWorkflowConfig`.
-
-  Returns:
-    A `tf.keras.Model`.
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    model: A `tf.keras.Model`.
+    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    sources: A tuple of three lists of sources (train, val, test).
+    expdir: A `str`. The experiment directory.
   """
-  return tf.keras.models.load_model(params.model.path)
-
-
-def _do_predictions(params, model, datasets, sources, expdir):
-
   print("Predicting...")
   train_dataset, val_dataset, test_dataset = datasets
   train_sources, val_sources, test_sources = sources
@@ -564,6 +573,9 @@ def _parse_spec_config(spec_config):
 
   Returns:
     A nested structure of `tf.TensorSpec`.
+
+  Raises:
+    ValueError: If `spec_config` is invalid.
   """
   if isinstance(spec_config, config.TensorSpecConfig):
     return tf.TensorSpec(spec_config.shape, spec_config.dtype, spec_config.name)
@@ -579,12 +591,21 @@ def _parse_spec_config(spec_config):
   if spec_config[0].name is not None:
     return {spec.name: tf.TensorSpec(
         spec.shape, spec.dtype, spec.name) for spec in spec_config}
-  else:
-    return [tf.TensorSpec(spec.shape, spec.dtype) for spec in spec_config]
+
+  return [tf.TensorSpec(spec.shape, spec.dtype) for spec in spec_config]
 
 
-def _get_map_func(map_func, component=None):
+def _maybe_decorate_map_func(map_func, component=None):
+  """Decorates a mapping function.
 
+  Args:
+    map_func: A callable.
+    component: An `int` or `str`. The component `map_func` should be applied to.
+      If `None` the function is applied to its unmodified input.
+
+  Returns:
+    A (possibly decorated) function.
+  """
   if component is None:
     return map_func
 
@@ -601,7 +622,19 @@ def _get_map_func(map_func, component=None):
 
 
 def _get_callbacks(params, expdir, datasets=None, tuning=False):
+  """Gets the callbacks.
 
+  Creates default callbacks and user callbacks.
+
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    expdir: A `str`. The experiment directory.
+    datasets: (optional) A tuple of three `tf.data.Dataset` (train, val, test).
+    tuning: (optional) A `bool`. Whether this is being called by a tuner.
+
+  Returns:
+    A list of `tf.keras.callbacks.Callback`.
+  """
   val_dataset = datasets[1] if datasets is not None else None
 
   # Complete callback configs.
@@ -616,7 +649,7 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
     if isinstance(value, str) and value == 'ModelCheckpoint':
       checkpoint_kwargs = {}
       continue
-    elif (isinstance(value, config.ObjectConfig) and
+    if (isinstance(value, config.ObjectConfig) and
         value.class_name == 'ModelCheckpoint'):
       checkpoint_kwargs = value.config.as_dict()
       continue
@@ -624,7 +657,7 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
     if isinstance(value, str) and value == 'TensorBoard':
       tensorboard_kwargs = {}
       continue
-    elif (isinstance(value, config.ObjectConfig) and
+    if (isinstance(value, config.ObjectConfig) and
         value.class_name == 'TensorBoard'):
       tensorboard_kwargs = value.config.as_dict()
       continue
@@ -632,7 +665,7 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
     if isinstance(value, str) and value == 'TensorBoardImages':
       images_kwargs = {}
       continue
-    elif (isinstance(value, config.ObjectConfig) and
+    if (isinstance(value, config.ObjectConfig) and
         value.class_name == 'TensorBoardImages'):
       images_kwargs = value.config.as_dict()
       continue
@@ -662,14 +695,23 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
 
 
 def _flatten_and_unbatch_nested_tensors(structure):
-
+  """Flattens and unbatches a nest of tensors."""
   if structure is None:
     return structure
   return [tf.unstack(x) for x in tf.nest.flatten(structure)]
 
 
 def _get_checkpoint_callback(params, expdir, kwargs=None):
+  """Gets the model checkpoint callback.
 
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    expdir: A `str`. The experiment directory.
+    kwargs: (optional) A `dict`. Keyword arguments for the callback.
+
+  Returns:
+    A `tf.keras.callbacks.ModelCheckpoint` instance, or `None`.
+  """
   if not params.training.use_default_callbacks and kwargs is None:
     return None
 
@@ -691,7 +733,16 @@ def _get_checkpoint_callback(params, expdir, kwargs=None):
 
 
 def _get_tensorboard_callback(params, expdir, kwargs=None):
+  """Gets the TensorBoard callback.
 
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    expdir: A `str`. The experiment directory.
+    kwargs: (optional) A `dict`. Keyword arguments for the callback.
+
+  Returns:
+    A `tf.keras.callbacks.TensorBoard` instance, or `None`.
+  """
   if not params.training.use_default_callbacks and kwargs is None:
     return None
 
@@ -710,7 +761,20 @@ def _get_tensorboard_callback(params, expdir, kwargs=None):
 
 
 def _get_images_callback(params, expdir, dataset, kwargs=None):
+  """Gets the images callback.
 
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    expdir: A `str`. The experiment directory.
+    dataset: A `tf.data.Dataset`. The validation dataset.
+    kwargs: (optional) A `dict`. Keyword arguments for the callback.
+
+  Returns:
+    A `tfmr.callbacks.TensorBoardImages` instance, or `None`.
+
+  Raises:
+    ValueError: If `kwargs` is not `None` and TensorFlow MRI cannot be imported.
+  """
   if kwargs is None:
     return None
 
@@ -722,18 +786,17 @@ def _get_images_callback(params, expdir, dataset, kwargs=None):
   kwargs = {**default_kwargs, **kwargs} if kwargs else default_kwargs
 
   try:
-    import tensorflow_mri as tfmr
+    import tensorflow_mri as tfmr # pylint: disable=import-outside-toplevel
     return tfmr.callbacks.TensorBoardImages(**kwargs)
   except ImportError as err:
     raise ValueError("TensorFlow MRI is required to use the TensorBoardImages "
                      "callback.") from err
 
 
-def _get_ckpt_path(expdir, checkpoint_kwargs):
-
+def _get_ckpt_path(expdir, checkpoint_kwargs): # pylint: disable=missing-param-doc
+  """Gets path to checkpoints."""
   # Get relevant checkpoint configuration.
   monitor = checkpoint_kwargs['monitor']
-  save_best_only = checkpoint_kwargs['save_best_only']
   save_weights_only = checkpoint_kwargs['save_weights_only']
 
   # The checkpoint directory. Create if necessary.
@@ -747,18 +810,18 @@ def _get_ckpt_path(expdir, checkpoint_kwargs):
   return os.path.join(path, filename)
 
 
-def _get_logs_path(params, expdir):
-
+def _get_logs_path(params, expdir): # pylint: disable=unused-argument
+  """Gets path to TensorBoard logs."""
   return os.path.join(expdir, 'logs')
 
 
-def _get_pred_path(params, expdir):
-
+def _get_pred_path(params, expdir): # pylint: disable=unused-argument
+  """Gets path to predictions."""
   return os.path.join(expdir, 'pred')
 
 
-def _get_tuner(params, hypermodel, expdir):
-  """Get tuner."""
+def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-docstring
+
   if params.tuning.tuner is None:
     return None
 
@@ -781,11 +844,10 @@ def _get_tuner(params, hypermodel, expdir):
   return tuners[name](**kwargs)
 
 
-class defaultdict(collections.defaultdict):
+class defaultdict(collections.defaultdict): # pylint: disable=invalid-name
 
   def __missing__(self, key):
     if self.default_factory is None:
       raise KeyError(key)
-    else:
-      ret = self[key] = self.default_factory(key)
-      return ret
+    ret = self[key] = self.default_factory(key) # pylint: disable=not-callable
+    return ret

@@ -24,7 +24,6 @@ with respect to the Keras registry:
 
 import inspect
 
-import keras_tuner as kt
 import tensorflow as tf
 
 from keras_declarative import config as config_module
@@ -123,7 +122,7 @@ def get_optimizer(identifier):
 
 def get_predicate(identifier):
   """Retrieve a predicate as a class instance.
-  
+
   Args:
     identifier: A predicate identifier. Must be a string, a dictionary, an
       `ObjectConfig` or `None`.
@@ -169,7 +168,18 @@ def _get(identifier, objects, objtype):
 
 
 def class_and_config_for_serialized_object(identifier):
-  """Returns the class name and config for a serialized object."""
+  """Returns the class name and config for a serialized object.
+
+  Args:
+    identifier: An object identifier. Must be a string, a dictionary or an
+      `ObjectConfig`.
+
+  Returns:
+    A tuple containing the class name and its keyword arguments.
+
+  Raises:
+    ValueError: If the identifier is invalid.
+  """
   if isinstance(identifier, config_module.ObjectConfig):
     identifier = {
       'class_name': identifier.class_name,

@@ -331,6 +331,9 @@ def _ndigits(n):
 
   Returns:
     The number of digits in input number.
+
+  Raises:
+    ValueError: If `n` is not an `int`.
   """
   if not isinstance(n, int):
     raise ValueError(f"`n` must be an integer, but got: "

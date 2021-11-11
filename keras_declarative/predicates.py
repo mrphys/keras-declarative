@@ -40,7 +40,7 @@ class ShapePredicate(Predicate):
     self._inclusive_max_shape = inclusive_max_shape
     self._exclusive_min_shape = exclusive_min_shape
     self._exclusive_max_shape = exclusive_max_shape
-  
+
   def __call__(self, inputs):
     """Gets predicate result for the given inputs."""
     result = tf.constant(True)

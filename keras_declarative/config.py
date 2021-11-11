@@ -221,7 +221,7 @@ class PredictConfig(hyperparams.Config):
 @dataclasses.dataclass
 class TuningConfig(hyperparams.Config):
   """Tuning configuration.
-  
+
   Attributes:
     tuner: An `ObjectConfig` definining the tuner configuration. For a list of
       valid tuners and their configurations, see
@@ -231,7 +231,7 @@ class TuningConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class TrainModelWorkflowConfig(hyperparams.Config):
+class TrainWorkflowConfig(hyperparams.Config):
   """Train model workflow configuration.
 
   Attributes:
@@ -251,9 +251,9 @@ class TrainModelWorkflowConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class TestModelWorkflowConfig(hyperparams.Config):
+class TestWorkflowConfig(hyperparams.Config):
   """Test model workflow configuration.
-  
+
   Attributes:
     experiment: An `ExperimentConfig`. General experiment configuration.
     data: A `DataConfig`. The dataset/s configuration.
@@ -285,7 +285,7 @@ def deserialize_special_objects(params):
 
     if _is_special_config(v):
       params.__dict__[k] = _parse_special_config(v)
-    
+
     elif isinstance(v, hyperparams.ParamsDict):
       params.__dict__[k] = deserialize_special_objects(v)
 
@@ -309,6 +309,9 @@ def _parse_special_config(config):
 
   Returns:
     The corresponding special object.
+
+  Raises:
+    ValueError: If `config` is not a valid special configuration.
   """
   if not _is_special_config(config):
     raise ValueError(f"Not a valid special configuration: {config}")
@@ -320,25 +323,27 @@ def _parse_special_config(config):
   if obj_type == 'rng':
     return _get_rng(obj_config)
 
-  elif obj_type == 'random':
+  if obj_type == 'random':
     return _get_rng(obj_config)()
 
-  elif obj_type == 'tunable':
+  if obj_type == 'tunable':
     return _get_tunable(obj_config)
 
-  else:
-    raise ValueError(f"Unknown special object type: {obj_type}")
+  raise ValueError(f"Unknown special object type: {obj_type}")
 
 
 def _get_rng(config):
   """Get a random number generator from the given config.
-  
+
   Args:
-    rng_config: An RNG config.
+    config: An RNG config.
 
   Returns:
     A callable with no arguments which returns random numbers according to the
     specified configuration.
+
+  Raises:
+    ValueError: If `config` is not a valid RNG config.
   """
   if 'type' not in config:
     raise ValueError(f"Invalid RNG config: {config}")
@@ -361,17 +366,20 @@ def _get_rng(config):
   if rng_type not in rng_func:
     raise ValueError(f"Unknown RNG type: {rng_type}")
 
-  return lambda: rng_func[rng_type](**rng_kwargs)    
+  return lambda: rng_func[rng_type](**rng_kwargs) # pylint: disable=unnecessary-lambda
 
 
 def _get_tunable(config):
-  """Get a hyperparameter from the given config.
-  
+  """Get a tunable placeholder from the given config.
+
   Args:
-    hparam_config: A hyperparameter config dictionary.
+    config: A tunable config dictionary.
 
   Returns:
     A `TunablePlaceholder`.
+
+  Raises:
+    ValueError: If `config` is not a valid tunable config.
   """
   if 'type' not in config:
     raise ValueError(f"Invalid hyperparameter config: {config}")
@@ -415,7 +423,7 @@ def _is_special_config(config):
     return False
 
   # Key must be a string starting with dollar sign $.
-  k = next(iter(d)) # First key in dict. 
+  k = next(iter(d)) # First key in dict.
   if not isinstance(k, str) or not k.startswith('$'):
     return False
 
@@ -439,7 +447,7 @@ def find_hyperparameters(params, hp=None):
 
     if isinstance(v, util.TunablePlaceholder):
       _ = v(hp)
-    
+
     elif isinstance(v, hyperparams.ParamsDict):
       hp = find_hyperparameters(v, hp=hp)
 
@@ -472,7 +480,7 @@ def inject_hyperparameters(params, hp):
 
     if isinstance(v, util.TunablePlaceholder):
       params.__dict__[k] = v(hp)
-    
+
     elif isinstance(v, hyperparams.ParamsDict):
       params.__dict__[k] = inject_hyperparameters(v, hp)
 

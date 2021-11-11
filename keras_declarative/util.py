@@ -52,19 +52,19 @@ def model_from_layers(layers, input_spec):
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 
 
-class TunablePlaceholder(object):
+class TunablePlaceholder():
   """A hyperparameter placeholder.
 
   Args:
-    type: A string. The type of the hyperparameter.
+    type_: A string. The type of the hyperparameter.
     kwargs: A dictionary. The keyword arguments defining the hyperparameter.
   """
-  def __init__(self, type, kwargs):
-    self.type = type
+  def __init__(self, type_, kwargs):
+    self.type_ = type_
     self.kwargs = kwargs
 
   def __call__(self, hp):
-    return getattr(hp, self.type)(**self.kwargs)
+    return getattr(hp, self.type_)(**self.kwargs)
 
 
 class TunerMixin(kt.Tuner):
@@ -93,7 +93,7 @@ class Hyperband(TunerMixin, kt.Hyperband):
   """Hyperband tuner with mixins."""
   def _build_hypermodel(self, hp):
     """Builds a hypermodel.
-    
+
     There seems to be a bug in the `kt.Hyperband` implementation. It overrides a
     `_build_model` function which does not seem to exist in the `kt.Tuner` base
     class. As a result, model weights are not loaded from previous trials as
@@ -101,6 +101,12 @@ class Hyperband(TunerMixin, kt.Hyperband):
 
     This function is the same as `Hyperband._build_model` but has the
     correct name `_build_hypermodel`.
+
+    Args:
+      hp: A `kt.HyperParameters` object.
+
+    Returns:
+      A `tf.keras.Model`.
     """
     model = super()._build_hypermodel(hp)
 
@@ -108,7 +114,7 @@ class Hyperband(TunerMixin, kt.Hyperband):
     if "tuner/trial_id" in hp.values:
       trial_id = hp.values["tuner/trial_id"]
       history_trial = self.oracle.get_trial(trial_id)
-      
+
       model.load_weights(
           self._get_checkpoint_fname(
               history_trial.trial_id, history_trial.best_step
