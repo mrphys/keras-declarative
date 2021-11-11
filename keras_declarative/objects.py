@@ -163,7 +163,10 @@ def _get(identifier, objects, objtype):
     ValueError: If the identifier is invalid.
     RuntimeError: If an error occurs while initializing the object.
   """
-  if identifier is None:
+  if isinstance(identifier, config_module.ObjectConfig):
+    identifier = identifier.as_dict()
+
+  if not identifier: # Might be `None` or an empty dict.
     return None
 
   class_name, config = class_and_config_for_serialized_object(identifier)
@@ -194,10 +197,7 @@ def class_and_config_for_serialized_object(identifier):
     ValueError: If the identifier is invalid.
   """
   if isinstance(identifier, config_module.ObjectConfig):
-    identifier = {
-      'class_name': identifier.class_name,
-      'config': identifier.config.as_dict()
-    }
+    identifier = identifier.as_dict()
 
   if isinstance(identifier, str):
     class_name, config = identifier, {}
