@@ -80,6 +80,15 @@ class TunerMixin(kt.Tuner):
         )
         callback.log_dir = logdir
 
+  def run_trial(self, trial, *args, **kwargs):
+    try:
+      return super().run_trial(trial, *args, **kwargs)
+    except Exception as e:
+      print(f"Trial '{trial.trial_id}' failed with exception:", e)
+      trial.status = kt.engine.trial.TrialStatus.INVALID
+      return {self.oracle.objective.name: float("-inf")
+              if self.oracle.objective.direction == "max" else float("inf")}
+
 
 class RandomSearch(TunerMixin, kt.RandomSearch):
   """Random search tuner with mixins."""

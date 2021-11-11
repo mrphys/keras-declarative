@@ -389,45 +389,55 @@ def _build_model(params, datasets):
   """
   train_dataset, _, _ = datasets
 
-  if params.model.path is not None:
-    # Load existing model.
-    model = tf.keras.models.load_model(params.model.path)
+  def _build_model_internal():
 
-  else: # Create new model architecture.
-    # Currently we support only layers as network.
-    layer = objects.get_layer(params.model.network)
+    if params.model.path is not None:
+      # Load existing model.
+      model = tf.keras.models.load_model(params.model.path)
 
-    if params.model.input_spec:
-      # User specified input spec explicitly, so use that.
-      input_spec = _parse_spec_config(params.model.input_spec)
+    else: # Create new model architecture.
+      # Currently we support only layers as network.
+      layer = objects.get_layer(params.model.network)
 
-    else:
-      # Model input spec not specified explicitly. Infer from training dataset.
-      input_spec, _, _ = tf.keras.utils.unpack_x_y_sample_weight(
-          train_dataset.element_spec)
+      if params.model.input_spec:
+        # User specified input spec explicitly, so use that.
+        input_spec = _parse_spec_config(params.model.input_spec)
 
-    # Network.
-    model = util.model_from_layers(layer, input_spec)
+      else:
+        # Model input spec not specified explicitly. Infer from training dataset.
+        input_spec, _, _ = tf.keras.utils.unpack_x_y_sample_weight(
+            train_dataset.element_spec)
 
-  if params.model.weights is not None:
-    model.load_weights(params.model.weights)
+      # Network.
+      model = util.model_from_layers(layer, input_spec)
 
-  # Print model summary.
-  model.summary(line_length=80)
+    if params.model.weights is not None:
+      model.load_weights(params.model.weights)
 
-  optimizer = objects.get_optimizer(params.training.optimizer)
-  loss = objects.get_list(objects.get_loss)(params.training.loss)
-  metrics = objects.get_list(objects.get_metric)(params.training.metrics)
+    # Print model summary.
+    model.summary(line_length=80)
 
-  model.compile(optimizer=optimizer,
-                loss=loss,
-                metrics=metrics or None,
-                loss_weights=params.training.loss_weights or None,
-                weighted_metrics=params.training.weighted_metrics or None,
-                run_eagerly=params.training.run_eagerly,
-                steps_per_execution=params.training.steps_per_execution)
+    optimizer = objects.get_optimizer(params.training.optimizer)
+    loss = objects.get_list(objects.get_loss)(params.training.loss)
+    metrics = objects.get_list(objects.get_metric)(params.training.metrics)
 
-  return model
+    model.compile(optimizer=optimizer,
+                  loss=loss,
+                  metrics=metrics or None,
+                  loss_weights=params.training.loss_weights or None,
+                  weighted_metrics=params.training.weighted_metrics or None,
+                  run_eagerly=params.training.run_eagerly,
+                  steps_per_execution=params.training.steps_per_execution)
+
+    return model
+
+  strategy = objects.get_strategy(params.distribute.strategy)
+
+  if strategy is not None:
+    with strategy.scope():
+      return _build_model_internal()
+
+  return _build_model_internal()
 
 
 def _train_model(params, expdir, model, datasets, **kwargs):

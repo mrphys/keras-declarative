@@ -33,4 +33,5 @@ RUN apt-get install -y git-all libopenexr-dev
 RUN python3.8 -m pip install tensorflow==${TF_VERSION}
 RUN python3.8 -m pip install tensorflow-mri==${TFMR_VERSION}
 RUN python3.8 -m pip install tensorflow-nufft==${TFFT_VERSION}
-RUN python3.8 -m pip install keras-declarative==${KDP_VERSION}
+RUN python3.8 -m pip install keras==${TF_VERSION}
+# RUN python3.8 -m pip install keras-declarative==${KDP_VERSION}

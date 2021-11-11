@@ -231,6 +231,16 @@ class TuningConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class DistributeConfig(hyperparams.Config):
+  """Distribute configuration.
+  
+  Attribute:
+    strategy: An `ObjectConfig` defining the distribute strategy configuration.
+  """
+  strategy: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class TrainWorkflowConfig(hyperparams.Config):
   """Train model workflow configuration.
 
@@ -241,6 +251,7 @@ class TrainWorkflowConfig(hyperparams.Config):
     training: A `TrainingConfig`. The training configuration.
     predict: A `PredictConfig`. The prediction configuration.
     tuning: A `TuningConfig`. The tuning configuration.
+    distribute: A `DistributeConfig`. The distribute configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
@@ -248,6 +259,7 @@ class TrainWorkflowConfig(hyperparams.Config):
   training: TrainingConfig = TrainingConfig()
   predict: PredictConfig = PredictConfig()
   tuning: TuningConfig = TuningConfig()
+  distribute: DistributeConfig = DistributeConfig()
 
 
 @dataclasses.dataclass

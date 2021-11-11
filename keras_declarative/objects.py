@@ -133,6 +133,19 @@ def get_predicate(identifier):
   return _get(identifier, _PREDICATE_OBJECTS, 'predicate')
 
 
+def get_strategy(identifier):
+  """Retrieve a TF distribution strategy as a class instance.
+
+  Args:
+    identifier: A strategy identifier. Must be a string, a dictionary, an
+      `ObjectConfig` or `None`.
+    
+  Returns:
+    A TF distribution strategy as a class instance.
+  """
+  return _get(identifier, _STRATEGY_OBJECTS, 'strategy')
+
+
 def _get(identifier, objects, objtype):
   """Retrieve an object as a class instance.
 
@@ -248,6 +261,10 @@ _PREDICATE_MODULES = [
   predicates
 ]
 
+_STRATEGY_MODULES = [
+  tf.distribute
+]
+
 
 try:
   import tensorflow_mri as tfmr
@@ -265,6 +282,7 @@ _LOSS_OBJECTS = None
 _METRIC_OBJECTS = None
 _OPTIMIZER_OBJECTS = None
 _PREDICATE_OBJECTS = None
+_STRATEGY_OBJECTS = None
 
 
 def discover_objects(custom_modules=None):
@@ -282,6 +300,7 @@ def discover_objects(custom_modules=None):
   global _METRIC_OBJECTS
   global _OPTIMIZER_OBJECTS
   global _PREDICATE_OBJECTS
+  global _STRATEGY_OBJECTS
 
   custom_modules = custom_modules or []
 
@@ -302,5 +321,6 @@ def discover_objects(custom_modules=None):
 
   _PREDICATE_OBJECTS = _find_objects(_PREDICATE_MODULES, predicates.Predicate)
 
+  _STRATEGY_OBJECTS = _find_objects(_STRATEGY_MODULES, tf.distribute.Strategy)
 
 discover_objects()
