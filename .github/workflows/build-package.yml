@@ -43,8 +43,6 @@ jobs:
         run: |
           $PYTHON setup.py bdist_wheel
       
-      - name: Build Docker image
-      
       - name: Upload wheel
         if: startsWith(github.ref, 'refs/tags')
         uses: actions/upload-artifact@v2
