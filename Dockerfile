@@ -13,14 +13,24 @@
 # limitations under the License.
 # ==============================================================================
 
-FROM tensorflow/tensorflow:2.7.0-gpu
+ARG TF_VERSION=2.6.0
+FROM tensorflow/tensorflow:${TF_VERSION}-gpu
 
-ARG TFMR_VERSION=0.8.0
-ARG TFFT_VERSION=0.4.0
+ARG TF_VERSION=2.6.0
+ARG TFMR_VERSION=0.7.0
+ARG TFFT_VERSION=0.3.2
 ARG KDP_VERSION=0.2.0
 
-RUN apt-get install -y libopenexr-dev
+ARG DEBIAN_FRONTEND=noninteractive
 
-RUN python -m pip install tensorflow-mri==${TFMR_VERSION}
-RUN python -m pip install tensorflow-nufft==${TFFT_VERSION}
-RUN python -m pip install keras-declarative==${KDP_VERSION}
+RUN add-apt-repository ppa:deadsnakes/ppa
+RUN apt-get update
+RUN apt-get install -y python3.8 python3.8-dev
+RUN python3.8 -m pip install --upgrade pip
+
+RUN apt-get install -y git-all libopenexr-dev
+
+RUN python3.8 -m pip install tensorflow==${TF_VERSION}
+RUN python3.8 -m pip install tensorflow-mri==${TFMR_VERSION}
+RUN python3.8 -m pip install tensorflow-nufft==${TFFT_VERSION}
+RUN python3.8 -m pip install keras-declarative==${KDP_VERSION}
