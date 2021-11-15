@@ -266,12 +266,24 @@ _STRATEGY_MODULES = [
 ]
 
 
+# Try to discover objects from TensorFlow MRI, if it is installed.
 try:
   import tensorflow_mri as tfmr
   _CALLBACK_MODULES.append(tfmr.callbacks)
   _LAYER_MODULES.extend([tfmr.layers, tfmr.experimental.layers])
   _LOSS_MODULES.append(tfmr.losses)
   _METRIC_MODULES.append(tfmr.metrics)
+except ImportError:
+  pass
+
+
+# Try to discover objects from TF Playground, if it is installed.
+try:
+  import tf_playground as tfpg
+  _CALLBACK_MODULES.append(tfpg.callbacks)
+  _LAYER_MODULES.append(tfpg.layers)
+  _LOSS_MODULES.append(tfpg.losses)
+  _METRIC_MODULES.append(tfpg.metrics)
 except ImportError:
   pass
 
