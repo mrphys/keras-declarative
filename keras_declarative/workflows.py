@@ -338,6 +338,9 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
           num_parallel_calls=transform.map.num_parallel_calls,
           deterministic=transform.map.deterministic)
 
+    elif transform.type == 'prefetch':
+      dataset = dataset.prefetch(transform.prefetch.buffer_size)
+
     elif transform.type == 'shuffle':
       if dstype != 'train' and options.shuffle_training_only:
         continue
