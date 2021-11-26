@@ -414,23 +414,24 @@ def _build_model(params, datasets):
       # Network.
       model = util.model_from_layers(layer, input_spec)
 
+      optimizer = objects.get_optimizer(params.training.optimizer)
+      loss = objects.get_list(objects.get_loss)(params.training.loss)
+      metrics = objects.get_list(objects.get_metric)(params.training.metrics)
+
+      model.compile(optimizer=optimizer,
+                    loss=loss,
+                    metrics=metrics or None,
+                    loss_weights=params.training.loss_weights or None,
+                    weighted_metrics=params.training.weighted_metrics or None,
+                    run_eagerly=params.training.run_eagerly,
+                    steps_per_execution=params.training.steps_per_execution)
+
+    # Load weights, if they were specified.
     if params.model.weights is not None:
       model.load_weights(params.model.weights)
 
     # Print model summary.
     model.summary(line_length=80)
-
-    optimizer = objects.get_optimizer(params.training.optimizer)
-    loss = objects.get_list(objects.get_loss)(params.training.loss)
-    metrics = objects.get_list(objects.get_metric)(params.training.metrics)
-
-    model.compile(optimizer=optimizer,
-                  loss=loss,
-                  metrics=metrics or None,
-                  loss_weights=params.training.loss_weights or None,
-                  weighted_metrics=params.training.weighted_metrics or None,
-                  run_eagerly=params.training.run_eagerly,
-                  steps_per_execution=params.training.steps_per_execution)
 
     return model
 
@@ -520,7 +521,8 @@ def _test_model(params, model, datasets, sources, expdir):
   tf.io.gfile.makedirs(pred_path)
 
   input_names = defaultdict(lambda key: 'input_' + str(key))
-  output_names = defaultdict(lambda key: 'output_' + str(key))
+  label_names = defaultdict(lambda key: 'label_' + str(key))
+  pred_names = defaultdict(lambda key: 'pred_' + str(key))
 
   # TODO: add possibility of using specified names.
 
@@ -543,21 +545,28 @@ def _test_model(params, model, datasets, sources, expdir):
       y = _flatten_and_unbatch_nested_tensors(y)
       y_pred = _flatten_and_unbatch_nested_tensors(y_pred)
 
+      # Get the batch size.
+      batch_size = len(x[0])
+
+      # Array containing data to be written. The list has one element per batch.
+      data = [{}] * batch_size
+
       # y and y_pred may be empty. Make sure we can iterate through them anyway.
       y = y or itertools.repeat(None)
       y_pred = y_pred or itertools.repeat(None)
 
       # For each element in batch.
-      for e_x, e_y, e_y_pred in zip(x, y, y_pred):
-        d = {}
-        d.update({input_names[idx]: value for idx, value in enumerate(e_x)})
-        d.update({output_names[idx]: value for idx, value in enumerate(e_y)})
-        d.update({output_names[idx] + '_pred': value
-                  for idx, value in enumerate(e_y_pred)})
-        d = {k: v.numpy() for k, v in d.items()}
+      for batch_index in range(batch_size):
+        data = {}
+        for elem_index, elem in enumerate(x):
+          data[input_names[elem_index]] = elem[batch_index]
+        for elem_index, elem in enumerate(y):
+          data[label_names[elem_index]] = elem[batch_index]
+        for elem_index, elem in enumerate(y_pred):
+          data[pred_names[elem_index]] = elem[batch_index]
 
         file_path = os.path.join(path, os.path.basename(sources[name].pop(0)))
-        io.write_hdf5(file_path, d)
+        io.write_hdf5(file_path, data)
 
       progbar.add(1)
 
@@ -708,7 +717,12 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
 
 
 def _flatten_and_unbatch_nested_tensors(structure):
-  """Flattens and unbatches a nest of tensors."""
+  """Flattens and unbatches a nest of tensors.
+  
+  The output is a list of lists. The outer list corresponds to the number of
+  elements in the input structure. The inner lists contain the unbatched
+  tensors.
+  """
   if structure is None:
     return structure
   return [tf.unstack(x) for x in tf.nest.flatten(structure)]

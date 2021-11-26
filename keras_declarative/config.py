@@ -278,11 +278,13 @@ class TestWorkflowConfig(hyperparams.Config):
     data: A `DataConfig`. The dataset/s configuration.
     model: A `ModelConfig`. The model configuration.
     predict: A `PredictConfig`. The prediction configuration.
+    distribute: A `DistributeConfig`. The distribute configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   predict: PredictConfig = PredictConfig()
+  distribute: DistributeConfig = DistributeConfig()
 
 
 def deserialize_special_objects(params):
