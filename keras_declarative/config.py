@@ -221,8 +221,14 @@ class PredictConfig(hyperparams.Config):
   Attributes:
     datasets: A string or list of strings with the datasets to obtain and store
       predictions for. Can include the strings `'train'`, `'val'` and `'test'`.
+    evaluate: A `bool`. Whether to evaluate the model using the specified
+      datasets.
+    save_images: A `bool`. If true, saves processed images of the predictions.
+      3D images are saved as GIF files.
   """
   datasets: List[str] = 'test'
+  evaluate: bool = True
+  save_images: bool = False
 
 
 @dataclasses.dataclass

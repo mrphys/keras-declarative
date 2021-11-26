@@ -22,8 +22,11 @@ import itertools
 import os
 import random
 
+from tensorflow.python.training.tracking import base
+
 import keras_tuner as kt
 import numpy as np
+import pandas as pd
 import tensorflow as tf
 import tensorflow_io as tfio
 
@@ -78,6 +81,8 @@ def train(config_file): # pylint: disable=missing-raises-doc
       _clean_up(cachefiles)
       raise err
 
+  print(f"Done. Results saved to {expdir}.")
+
 
 def test(config_file): # pylint: disable=missing-raises-doc
   """Test an existing model.
@@ -109,6 +114,8 @@ def test(config_file): # pylint: disable=missing-raises-doc
   except BaseException as err:
     _clean_up(cachefiles)
     raise err
+
+  print(f"Done. Results saved to {expdir}.")
 
 
 class HyperModel(kt.HyperModel):
@@ -520,15 +527,32 @@ def _test_model(params, model, datasets, sources, expdir):
   pred_path = _get_pred_path(params, expdir)
   tf.io.gfile.makedirs(pred_path)
 
+  if params.predict.save_images:
+    image_path = _get_image_path(params, expdir)
+    tf.io.gfile.makedirs(image_path)
+
+  if params.predict.evaluate:
+    eval_path = _get_eval_path(params, expdir)
+    tf.io.gfile.makedirs(eval_path)
+
   input_names = defaultdict(lambda key: 'input_' + str(key))
   label_names = defaultdict(lambda key: 'label_' + str(key))
   pred_names = defaultdict(lambda key: 'pred_' + str(key))
 
-  # TODO: add possibility of using specified names.
+  # TODO: add possibility of using user-specified names.
 
-  for name, dataset in datasets.items():
-    path = os.path.join(pred_path, name)
-    tf.io.gfile.makedirs(path)
+  for ds_name, dataset in datasets.items():
+
+    ds_pred_path = os.path.join(pred_path, ds_name)
+    tf.io.gfile.makedirs(ds_pred_path)
+
+    if params.predict.save_images:
+      ds_image_path = os.path.join(image_path, ds_name)
+      tf.io.gfile.makedirs(ds_image_path)
+
+    if params.predict.evaluate:
+      columns = ['name'] + model.metrics_names
+      df = pd.DataFrame(columns=columns)
 
     # Get number of elements.
     n = dataset.cardinality().numpy()
@@ -543,19 +567,10 @@ def _test_model(params, model, datasets, sources, expdir):
 
       x = _flatten_and_unbatch_nested_tensors(x)
       y = _flatten_and_unbatch_nested_tensors(y)
-      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)
-
-      # Get the batch size.
-      batch_size = len(x[0])
-
-      # Array containing data to be written. The list has one element per batch.
-      data = [{}] * batch_size
-
-      # y and y_pred may be empty. Make sure we can iterate through them anyway.
-      y = y or itertools.repeat(None)
-      y_pred = y_pred or itertools.repeat(None)
+      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)      
 
       # For each element in batch.
+      batch_size = len(x[0])
       for batch_index in range(batch_size):
         data = {}
         for elem_index, elem in enumerate(x):
@@ -565,12 +580,44 @@ def _test_model(params, model, datasets, sources, expdir):
         for elem_index, elem in enumerate(y_pred):
           data[pred_names[elem_index]] = elem[batch_index]
 
-        file_path = os.path.join(path, os.path.basename(sources[name].pop(0)))
+        basename = os.path.splitext(os.path.basename(sources[ds_name].pop(0)))[0]
+        file_path = os.path.join(ds_pred_path, basename + '.h5')
         io.write_hdf5(file_path, data)
+
+        if params.predict.save_images:
+          tfmr = _get_tensorflow_mri()
+          image = _make_image(data)
+          file_path = os.path.join(ds_image_path, basename + '.gif')
+          tf.io.write_file(file_path, tfmr.io.encode_gif(image))
+
+        if params.predict.evaluate:
+          inputs = [tf.expand_dims(data[v], 0) for v in input_names.values()]
+          labels = [tf.expand_dims(data[v], 0) for v in label_names.values()]
+          results = model.evaluate(x=inputs, y=labels, verbose=0)
+          df = df.append({k: v for k, v in zip(columns, [basename] + results)},
+                         ignore_index=True)
 
       progbar.add(1)
 
+    if params.predict.evaluate:
+      df.sort_values(by='name', inplace=True, ignore_index=True)
+      df.to_csv(os.path.join(eval_path, ds_name + '.csv'))
+
   print("Prediction complete.")
+
+
+def _make_image(data):
+  """Makes a generic display image from an example.
+
+  Concatenates all the images in `data` horizontally and returns a single image.
+  """
+  normalize = lambda x: (x - tf.reduce_min(x)) / (tf.reduce_max(x) - tf.reduce_min(x))
+  images = list(data.values())
+  image = tf.concat(images, axis=-2)
+  image = normalize(image)
+  image *= 255.0
+  image = tf.cast(image, tf.uint8)
+  return image
 
 
 def _clean_up(cachefiles):
@@ -812,12 +859,10 @@ def _get_images_callback(params, expdir, dataset, kwargs=None):
 
   kwargs = {**default_kwargs, **kwargs} if kwargs else default_kwargs
 
-  try:
-    import tensorflow_mri as tfmr # pylint: disable=import-outside-toplevel
-    return tfmr.callbacks.TensorBoardImages(**kwargs)
-  except ImportError as err:
-    raise ValueError("TensorFlow MRI is required to use the TensorBoardImages "
-                     "callback.") from err
+  tfmr = _get_tensorflow_mri(
+      message="TensorFlow MRI is needed to use the TensorBoardImages callback.",
+      missing_ok=False)
+  return tfmr.callbacks.TensorBoardImages(**kwargs)
 
 
 def _get_ckpt_path(expdir, checkpoint_kwargs): # pylint: disable=missing-param-doc
@@ -847,6 +892,16 @@ def _get_pred_path(params, expdir): # pylint: disable=unused-argument
   return os.path.join(expdir, 'pred')
 
 
+def _get_image_path(params, expdir): # pylint: disable=unused-argument
+  """Gets path to images."""
+  return os.path.join(expdir, 'image')
+
+
+def _get_eval_path(params, expdir): # pylint: disable=unused-argument
+  """Gets path to evaluation results."""
+  return os.path.join(expdir, 'eval')
+
+
 def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-docstring
 
   if params.tuning.tuner is None:
@@ -869,6 +924,19 @@ def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-d
   kwargs['project_name'] = 'tuning'
 
   return tuners[name](**kwargs)
+
+
+def _get_tensorflow_mri(message=None, missing_ok=False):
+  """Gets the TensorFlow MRI module."""
+  try:
+    import tensorflow_mri # pylint: disable=import-outside-toplevel
+    return tensorflow_mri
+  except ImportError as err:
+    if missing_ok:
+      return None
+    raise ValueError(
+        "TensorFlow MRI is required for an action you requested. Please "
+        "TensorFlow MRI to continue.") from err
 
 
 class defaultdict(collections.defaultdict): # pylint: disable=invalid-name
