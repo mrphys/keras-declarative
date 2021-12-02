@@ -13,12 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 
-ARG TF_VERSION=2.6.0
+ARG TF_VERSION=2.7.0
 FROM tensorflow/tensorflow:${TF_VERSION}-gpu
 
-ARG TF_VERSION=2.6.0
-ARG TFMR_VERSION=0.7.0
-ARG TFFT_VERSION=0.3.2
+ARG TF_VERSION=2.7.0
+ARG TFMR_VERSION=0.8.0
+ARG TFFT_VERSION=0.4.0
 ARG KDP_VERSION=0.2.0
 
 ARG DEBIAN_FRONTEND=noninteractive
@@ -34,4 +34,3 @@ RUN python3.8 -m pip install tensorflow==${TF_VERSION}
 RUN python3.8 -m pip install tensorflow-mri==${TFMR_VERSION}
 RUN python3.8 -m pip install tensorflow-nufft==${TFFT_VERSION}
 RUN python3.8 -m pip install keras==${TF_VERSION}
-# RUN python3.8 -m pip install keras-declarative==${KDP_VERSION}
