@@ -139,7 +139,7 @@ def get_strategy(identifier):
   Args:
     identifier: A strategy identifier. Must be a string, a dictionary, an
       `ObjectConfig` or `None`.
-    
+
   Returns:
     A TF distribution strategy as a class instance.
   """

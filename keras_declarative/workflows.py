@@ -18,11 +18,8 @@ import collections
 import datetime
 import functools
 import glob
-import itertools
 import os
 import random
-
-from tensorflow.python.training.tracking import base
 
 import keras_tuner as kt
 import numpy as np
@@ -30,8 +27,7 @@ import pandas as pd
 import tensorflow as tf
 import tensorflow_io as tfio
 
-from official.modeling import hyperparams
-
+from keras_declarative import hyperparams
 from keras_declarative import config
 from keras_declarative import io
 from keras_declarative import objects
@@ -567,7 +563,7 @@ def _test_model(params, model, datasets, sources, expdir):
 
       x = _flatten_and_unbatch_nested_tensors(x)
       y = _flatten_and_unbatch_nested_tensors(y)
-      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)      
+      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)
 
       # For each element in batch.
       batch_size = len(x[0])
@@ -580,7 +576,8 @@ def _test_model(params, model, datasets, sources, expdir):
         for elem_index, elem in enumerate(y_pred):
           data[pred_names[elem_index]] = elem[batch_index]
 
-        basename = os.path.splitext(os.path.basename(sources[ds_name].pop(0)))[0]
+        basename = os.path.splitext(
+            os.path.basename(sources[ds_name].pop(0)))[0]
         file_path = os.path.join(ds_pred_path, basename + '.h5')
         io.write_hdf5(file_path, data)
 
@@ -594,7 +591,7 @@ def _test_model(params, model, datasets, sources, expdir):
           inputs = [tf.expand_dims(data[v], 0) for v in input_names.values()]
           labels = [tf.expand_dims(data[v], 0) for v in label_names.values()]
           results = model.evaluate(x=inputs, y=labels, verbose=0)
-          df = df.append({k: v for k, v in zip(columns, [basename] + results)},
+          df = df.append(dict(zip(columns, [basename] + results)),
                          ignore_index=True)
 
       progbar.add(1)
@@ -610,10 +607,17 @@ def _make_image(data):
   """Makes a generic display image from an example.
 
   Concatenates all the images in `data` horizontally and returns a single image.
+
+  Args:
+    data: A `dict` containing images as values.
+
+  Returns:
+    An image suitable for display.
   """
-  normalize = lambda x: (x - tf.reduce_min(x)) / (tf.reduce_max(x) - tf.reduce_min(x))
+  normalize = lambda x: tf.math.divide(
+      x - tf.reduce_min(x), tf.reduce_max(x) - tf.reduce_min(x))
   images = list(data.values())
-  image = tf.concat(images, axis=-2)
+  image = tf.concat(images, axis=-2) # pylint: disable=unexpected-keyword-arg,no-value-for-parameter
   image = normalize(image)
   image *= 255.0
   image = tf.cast(image, tf.uint8)
@@ -765,7 +769,7 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
 
 def _flatten_and_unbatch_nested_tensors(structure):
   """Flattens and unbatches a nest of tensors.
-  
+
   The output is a list of lists. The outer list corresponds to the number of
   elements in the input structure. The inner lists contain the unbatched
   tensors.
@@ -927,16 +931,32 @@ def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-d
 
 
 def _get_tensorflow_mri(message=None, missing_ok=False):
-  """Gets the TensorFlow MRI module."""
+  """Gets the TensorFlow MRI module.
+
+  Args:
+    message: An optional `str`. An error message to display if the module is not
+      found.
+    missing_ok: An optional `bool`. If `True`, do not raise an exception if the
+      module is not found. In this case, returns `None`.
+
+  Returns:
+    The TensorFlow MRI module, or `None` if it is not installed and `missing_ok`
+    is `True`.
+
+  Raises:
+    ValueError: If the module is not installed and `missing_ok` is `False`.
+  """
   try:
     import tensorflow_mri # pylint: disable=import-outside-toplevel
     return tensorflow_mri
   except ImportError as err:
     if missing_ok:
       return None
-    raise ValueError(
-        "TensorFlow MRI is required for an action you requested. Please "
-        "TensorFlow MRI to continue.") from err
+    if message is None:
+      message = (
+          "TensorFlow MRI is required for an action you requested. Please "
+          "install TensorFlow MRI to continue.")
+    raise ValueError(message) from err
 
 
 class defaultdict(collections.defaultdict): # pylint: disable=invalid-name

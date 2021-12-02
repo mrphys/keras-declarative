@@ -17,7 +17,7 @@
 from typing import Optional
 
 import dataclasses
-from official.modeling.hyperparams import base_config
+from keras_declarative.hyperparams import base_config
 
 
 @dataclasses.dataclass

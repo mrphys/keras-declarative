@@ -19,7 +19,7 @@ import os
 import tensorflow as tf
 import yaml
 
-from official.modeling.hyperparams import params_dict
+from keras_declarative.hyperparams import params_dict
 
 
 class ParamsDictTest(tf.test.TestCase):

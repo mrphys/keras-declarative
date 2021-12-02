@@ -21,8 +21,7 @@ from typing import List, Union, Optional
 import keras_tuner as kt
 import tensorflow as tf
 
-from official.modeling import hyperparams
-
+from keras_declarative import hyperparams
 from keras_declarative import util
 
 # NOTE: This file is more easily read from the bottom up, as the more generic
@@ -246,7 +245,7 @@ class TuningConfig(hyperparams.Config):
 @dataclasses.dataclass
 class DistributeConfig(hyperparams.Config):
   """Distribute configuration.
-  
+
   Attribute:
     strategy: An `ObjectConfig` defining the distribute strategy configuration.
   """

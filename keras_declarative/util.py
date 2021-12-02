@@ -83,7 +83,7 @@ class TunerMixin(kt.Tuner):
   def run_trial(self, trial, *args, **kwargs):
     try:
       return super().run_trial(trial, *args, **kwargs)
-    except Exception as e:
+    except Exception as e: # pylint: disable=broad-except
       print(f"Trial '{trial.trial_id}' failed with exception:", e)
       trial.status = kt.engine.trial.TrialStatus.INVALID
       return {self.oracle.objective.name: float("-inf")

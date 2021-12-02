@@ -14,8 +14,8 @@
 
 import dataclasses
 import tensorflow as tf
-from official.modeling.hyperparams import base_config
-from official.modeling.hyperparams import oneof
+from keras_declarative.hyperparams import base_config
+from keras_declarative.hyperparams import oneof
 
 
 @dataclasses.dataclass
