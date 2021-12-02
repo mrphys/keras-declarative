@@ -14,6 +14,6 @@
 
 """Params package definition."""
 # pylint: disable=g-multiple-import
-from keras_declarative.params.base_config import *
-from keras_declarative.params.oneof import *
-from keras_declarative.params.params_dict import *
+from keras_declarative.hyperparams.base_config import *
+from keras_declarative.hyperparams.oneof import *
+from keras_declarative.hyperparams.params_dict import *
