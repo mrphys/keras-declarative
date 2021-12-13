@@ -2,3 +2,4 @@ h5py
 keras-tuner
 tensorflow
 tensorflow-io
+pyyaml
