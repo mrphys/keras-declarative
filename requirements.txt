@@ -1,5 +1,5 @@
 h5py
 keras-tuner
+pyyaml
 tensorflow
 tensorflow-io
-pyyaml
