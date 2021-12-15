@@ -86,6 +86,7 @@ class MapTransformConfig(hyperparams.Config):
   num_parallel_calls: Optional[int] = None
   deterministic: Optional[bool] = None
   component: Optional[Union[int, str]] = None
+  output: Optional[Union[int, str]] = None
 
 
 @dataclasses.dataclass

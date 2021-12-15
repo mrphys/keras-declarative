@@ -243,6 +243,13 @@ def _build_datasets(params, expname, sources):
   val_spec = _parse_spec_config(params.data.val_spec)
   test_spec = _parse_spec_config(params.data.test_spec)
 
+  # Prepend a slash to the spec names.
+  def _prepend_slashes(spec):
+    return {f"/{k}": tf.TensorSpec.from_spec(v, name=f"{k}") for k, v in spec.items()}
+  train_spec = _prepend_slashes(train_spec)
+  val_spec = _prepend_slashes(val_spec)
+  test_spec = _prepend_slashes(test_spec)
+
   # Some functions.
   def _read_hdf5(filename, spec=None):
     hdf5_io_tensor = tfio.IOTensor.from_hdf5(filename, spec=spec)
@@ -268,11 +275,20 @@ def _build_datasets(params, expname, sources):
       functools.partial(_read_hdf5, spec=val_spec))
   test_dataset = test_dataset.map(
       functools.partial(_read_hdf5, spec=test_spec))
+  
+  def _remove_slashes(structure):
+    if isinstance(structure, dict):
+      return {k[1:]: v for k, v in structure.items()}
+    return structure
+
+  train_dataset = train_dataset.map(_remove_slashes)
+  val_dataset = val_dataset.map(_remove_slashes)
+  test_dataset = test_dataset.map(_remove_slashes)
 
   # Extract outputs.
-  train_dataset = train_dataset.map(_get_outputs)
-  val_dataset = val_dataset.map(_get_outputs)
-  test_dataset = test_dataset.map(_get_outputs)
+  # train_dataset = train_dataset.map(_get_outputs)
+  # val_dataset = val_dataset.map(_get_outputs)
+  # test_dataset = test_dataset.map(_get_outputs)
 
   # Add user-specified transforms to each dataset.
   cachefiles = []
@@ -337,7 +353,8 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
     elif transform.type == 'map':
       map_func = objects.get_layer(transform.map.map_func)
       dataset = dataset.map(
-          _maybe_decorate_map_func(map_func, transform.map.component),
+          _maybe_decorate_map_func(map_func, transform.map.component,
+                                   transform.map.output),
           num_parallel_calls=transform.map.num_parallel_calls,
           deterministic=transform.map.deterministic)
 
@@ -668,13 +685,15 @@ def _parse_spec_config(spec_config):
   return [tf.TensorSpec(spec.shape, spec.dtype) for spec in spec_config]
 
 
-def _maybe_decorate_map_func(map_func, component=None):
+def _maybe_decorate_map_func(map_func, component=None, output=None):
   """Decorates a mapping function.
 
   Args:
     map_func: A callable.
     component: An `int` or `str`. The component `map_func` should be applied to.
       If `None` the function is applied to its unmodified input.
+    output: An `int` or `str`. The destination where the output of `map_func`
+      should be inserted.
 
   Returns:
     A (possibly decorated) function.
@@ -685,11 +704,20 @@ def _maybe_decorate_map_func(map_func, component=None):
   if isinstance(component, (int, str)):
     component = [component]
 
-  def _map_func(*args):
-    args = list(args)
-    for c in component:
-      args[c] = map_func(args[c])
-    return tuple(args)
+  if output is None:
+    # No output was provided, apply the function to each component and return
+    # the result in the same location.
+    def _map_func(*args):
+      args = args[0] if len(args) == 1 else list(args)
+      for c in component:
+        args[c] = map_func(args[c])
+      return tuple(args) if isinstance(args, list) else args
+  else:
+    # An output was specified, apply the function to the specified component and
+    # return the result at the specified destination.
+    def _map_func(args):
+      args[output] = map_func([args[c] for c in component])
+      return args
 
   return _map_func
 

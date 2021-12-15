@@ -31,6 +31,12 @@ def model_from_layers(layers, input_spec):
   if isinstance(layers, tf.keras.layers.Layer):
     layers = [layers]
 
+  # If `input_spec` is a dict, set the `TensorSpec` names to the value of the
+  # corresponding dict keys.
+  if isinstance(input_spec, dict):
+    for k, v in input_spec.items():
+      input_spec[k] = tf.TensorSpec.from_spec(v, name=k)
+
   # Generate inputs with the passed specification.
   def _make_input(spec):
 
@@ -39,6 +45,7 @@ def model_from_layers(layers, input_spec):
 
     return tf.keras.Input(shape=spec.shape[1:],
                           batch_size=spec.shape[0],
+                          name=spec.name,
                           dtype=spec.dtype)
 
   inputs = tf.nest.map_structure(_make_input, input_spec)
