@@ -80,7 +80,7 @@ class TunerMixin(kt.Tuner):
     super()._configure_tensorboard_dir(callbacks, trial, execution)
 
     for callback in callbacks:
-      if callback.__class__.__name__ == "TensorBoardImages":
+      if callback.__class__.__name__.startswith("TensorBoardImages"):
         # Patch TensorBoardImages log_dir.
         logdir = self._get_tensorboard_dir(
             callback.log_dir, trial.trial_id, execution
