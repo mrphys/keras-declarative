@@ -170,6 +170,8 @@ def _setup_directory(params, config_file):
     expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
   expdir = os.path.join(path, expname)
+  if tf.io.gfile.exists(expdir):
+    raise OSError(f"Directory {expdir} already exists.")
   tf.io.gfile.makedirs(expdir)
   hyperparams.save_params_dict_to_yaml(
       params, os.path.join(expdir, 'config.yaml'))
@@ -481,7 +483,12 @@ def _train_model(params, expdir, model, datasets, **kwargs):
   Returns:
     A trained `tf.keras.Model`.
   """
-  train_dataset, val_dataset, _ = datasets
+  train_dataset, val_dataset, test_dataset = datasets
+  dataset = {
+      'train': train_dataset,
+      'val': val_dataset,
+      'test': test_dataset
+  }
 
   # Get callbacks.
   callbacks = kwargs.get('callbacks') or _get_callbacks(
@@ -490,7 +497,8 @@ def _train_model(params, expdir, model, datasets, **kwargs):
   # Patch TensorBoardImages dataset.
   for callback in callbacks:
     if callback.__class__.__name__.startswith("TensorBoardImages"):
-      callback.x = val_dataset
+      dataset_name = getattr(callback, 'dataset_name', 'val')
+      callback.x = dataset[dataset_name]
 
   kwargs['x'] = train_dataset
   if 'epochs' not in kwargs:
@@ -783,8 +791,9 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
                                                  kwargs=checkpoint_kwargs)
   tensorboard_callback = _get_tensorboard_callback(params, expdir,
                                                    kwargs=tensorboard_kwargs)
-  images_callback = _get_images_callback(params, expdir, val_dataset,
-                                         images_class_name, kwargs=images_kwargs)
+  images_callback = _get_images_callback(params, expdir, datasets,
+                                         images_class_name,
+                                         kwargs=images_kwargs)
 
   # Parse callback configs.
   callbacks = objects.get_list(objects.get_callback)(remaining_callback_configs)
@@ -872,13 +881,13 @@ def _get_tensorboard_callback(params, expdir, kwargs=None):
   return tf.keras.callbacks.TensorBoard(**kwargs)
 
 
-def _get_images_callback(params, expdir, dataset, class_name, kwargs=None):
+def _get_images_callback(params, expdir, datasets, class_name, kwargs=None):
   """Gets the images callback.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     expdir: A `str`. The experiment directory.
-    dataset: A `tf.data.Dataset`. The validation dataset.
+    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
     class_name: A `str`. The class name of the images callback.
     kwargs: (optional) A `dict`. Keyword arguments for the callback.
 
@@ -891,8 +900,16 @@ def _get_images_callback(params, expdir, dataset, class_name, kwargs=None):
   if kwargs is None:
     return None
 
+  train_dataset, val_dataset, test_dataset = datasets
+  dataset = {
+      'train': train_dataset,
+      'val': val_dataset,
+      'test': test_dataset
+  }
+
+  dataset_name = kwargs.pop('x', 'val')
   default_kwargs = dict(
-      x=dataset,
+      x=dataset[dataset_name],
       log_dir=_get_logs_path(params, expdir)
   )
 
@@ -901,7 +918,11 @@ def _get_images_callback(params, expdir, dataset, class_name, kwargs=None):
   tfmr = _get_tensorflow_mri(
       message="TensorFlow MRI is needed to use the TensorBoardImages callback.",
       missing_ok=False)
-  return getattr(tfmr.callbacks, class_name)(**kwargs)
+  callback = getattr(tfmr.callbacks, class_name)(**kwargs)
+  # Store user dataset selection to use when patching the callback during
+  # hyperparameter tuning.
+  callback.dataset_name = dataset_name
+  return callback
 
 
 def _get_ckpt_path(expdir, checkpoint_kwargs): # pylint: disable=missing-param-doc
