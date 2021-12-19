@@ -361,6 +361,9 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
     elif transform.type == 'prefetch':
       dataset = dataset.prefetch(transform.prefetch.buffer_size)
 
+    elif transform.type == 'repeat':
+      dataset = dataset.repeat(transform.repeat.count)
+
     elif transform.type == 'shuffle':
       if dstype != 'train' and options.shuffle_training_only:
         continue

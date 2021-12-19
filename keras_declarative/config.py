@@ -96,6 +96,12 @@ class PrefetchTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class RepeatTransformConfig(hyperparams.Config):
+  """Repeat transform configuration."""
+  count: int = None
+
+
+@dataclasses.dataclass
 class ShuffleTransformConfig(hyperparams.Config):
   """Shuffle transform configuration."""
   buffer_size: int = None
@@ -112,6 +118,7 @@ class DataTransformConfig(hyperparams.OneOfConfig):
   filter: FilterTransformConfig = FilterTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
   prefetch: PrefetchTransformConfig = PrefetchTransformConfig()
+  repeat: RepeatTransformConfig = RepeatTransformConfig()
   shuffle: ShuffleTransformConfig = ShuffleTransformConfig()
 
 
