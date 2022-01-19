@@ -55,8 +55,34 @@ def model_from_layers(layers, input_spec):
   for layer in layers:
     outputs = layer(outputs)
 
+  # If output is a dictionary, create a dummy identity layer for each output.
+  # This has no effect on model output but results in nicer output naming
+  # throughout Keras functions.
+  if isinstance(outputs, dict):
+    outputs = {k: tf.keras.layers.Layer(name=k)(v) for k, v in outputs.items()}
+
   # Build model using functional API.
   return tf.keras.Model(inputs=inputs, outputs=outputs)
+
+
+class ExternalObject():
+  """An object loaded from an external module.
+
+  This class is used to wrap objects that are loaded from an external module and
+  are not managed by Keras Declarative.
+  """
+  def __init__(self, obj):
+    self._obj = obj
+
+  def __call__(self, name):
+    return self._obj(name)
+
+  def __getattr__(self, name):
+    return getattr(self._obj, name)
+
+  @property
+  def obj(self):
+    return self._obj
 
 
 class TunablePlaceholder():

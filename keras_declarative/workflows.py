@@ -440,8 +440,8 @@ def _build_model(params, datasets):
       model = util.model_from_layers(layer, input_spec)
 
       optimizer = objects.get_optimizer(params.training.optimizer)
-      loss = objects.get_list(objects.get_loss)(params.training.loss)
-      metrics = objects.get_list(objects.get_metric)(params.training.metrics)
+      loss = objects.get_nest(objects.get_loss)(params.training.loss)
+      metrics = objects.get_nest(objects.get_metric)(params.training.metrics)
 
       model.compile(optimizer=optimizer,
                     loss=loss,

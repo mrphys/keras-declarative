@@ -14,9 +14,11 @@
 # ==============================================================================
 """Configuration."""
 
+import pathlib
 import copy
 import dataclasses
 from typing import List, Union, Optional
+import importlib.util
 
 import keras_tuner as kt
 import tensorflow as tf
@@ -317,7 +319,7 @@ def deserialize_special_objects(params):
   """
   for k, v in params.__dict__.items():
 
-    if _is_special_config(v):
+    if is_special_config(v):
       params.__dict__[k] = _parse_special_config(v)
 
     elif isinstance(v, hyperparams.ParamsDict):
@@ -326,7 +328,7 @@ def deserialize_special_objects(params):
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for i, e in enumerate(v):
 
-        if _is_special_config(e):
+        if is_special_config(e):
           params.__dict__[k][i] = _parse_special_config(e)
 
         if isinstance(e, hyperparams.ParamsDict):
@@ -347,7 +349,7 @@ def _parse_special_config(config):
   Raises:
     ValueError: If `config` is not a valid special configuration.
   """
-  if not _is_special_config(config):
+  if not is_special_config(config):
     raise ValueError(f"Not a valid special configuration: {config}")
 
   d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
@@ -362,6 +364,9 @@ def _parse_special_config(config):
 
   if obj_type == 'tunable':
     return _get_tunable(obj_config)
+
+  if obj_type == 'external':
+    return _get_external(obj_config)
 
   raise ValueError(f"Unknown special object type: {obj_type}")
 
@@ -438,7 +443,38 @@ def _get_tunable(config):
   return util.TunablePlaceholder(types_dict[tunable_type], tunable_kwargs)
 
 
-def _is_special_config(config):
+def _get_external(config):
+  """Get an external object from the given config.
+
+  Args:
+    config: An external config dictionary.
+
+  Returns:
+    An `ExternalObject`.
+
+  Raises:
+    ValueError: If `config` is not a valid external config.
+  """
+  if 'filename' not in config:
+    raise ValueError(f"Invalid module config: {config}. Missing filename.")
+  if 'object_name' not in config:
+    raise ValueError(f"Invalid module config: {config}. Missing object_name.")
+
+  # Load the specified module.
+  path = pathlib.Path(config['filename'])
+  spec = importlib.util.spec_from_file_location(path.stem, str(path))
+  module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+
+  # Retrieve the specified object from module.
+  obj = getattr(module, config['object_name'])
+
+  # Initialize object.
+  return util.ExternalObject(
+      obj(*config.get('args') or [], **config.get('kwargs') or {}))
+
+
+def is_special_config(config):
   """Check if input is a valid special config.
 
   Args:

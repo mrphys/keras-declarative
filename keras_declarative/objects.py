@@ -27,7 +27,9 @@ import inspect
 import tensorflow as tf
 
 from keras_declarative import config as config_module
+from keras_declarative import hyperparams
 from keras_declarative import predicates
+from keras_declarative import util
 
 
 def get_list(get_fn):
@@ -53,6 +55,41 @@ def get_list(get_fn):
       return [get_fn(ident) for ident in identifier]
     return get_fn(identifier)
   return get_list_fn
+
+
+def get_nest(get_fn):
+  """Returns a function that retrieves a nested structure of objects.
+
+  Nests include lists and dictionaries.
+
+  Args:
+    get_fn: The get function to be used for individual identifiers.
+
+  Returns:
+    A function that retrieves an object or a list of objects.
+  """
+  def get_nest_fn(identifier):
+    """Retrieves a nested structure of objects.
+
+    Args:
+      identifier: An object identifier. Must be a string, a dictionary, an
+        `ObjectConfig` or `None`.
+
+    Returns:
+      A list of Keras objects as class instances.
+    """
+    if isinstance(identifier, hyperparams.ParamsDict):
+      identifier = identifier.as_dict()
+    def _parse_nest(nest):
+      if is_object_config(nest):
+        return get_fn(nest)
+      if isinstance(nest, dict):
+        return {key: _parse_nest(value) for key, value in nest.items()}
+      if isinstance(nest, list):
+        return [_parse_nest(value) for value in nest]
+      return get_fn(nest)
+    return _parse_nest(identifier)
+  return get_nest_fn
 
 
 def get_callback(identifier):
@@ -163,6 +200,10 @@ def _get(identifier, objects, objtype):
     ValueError: If the identifier is invalid.
     RuntimeError: If an error occurs while initializing the object.
   """
+  # If object is an external object, don't try to resolve it.
+  if isinstance(identifier, util.ExternalObject):
+    return identifier
+
   if isinstance(identifier, config_module.ObjectConfig):
     identifier = identifier.as_dict()
 
@@ -216,6 +257,31 @@ def class_and_config_for_serialized_object(identifier):
         f"dictionary or an `ObjectConfig`.")
 
   return class_name, config
+
+
+def is_object_config(config):
+  """Check if input is a valid object configuration dict.
+
+  Args:
+    config: The object to check.
+  
+  Returns:
+    True if input is a valid object configuration dict, false otherwise.
+  """
+  # A str or None are valid object configs.
+  if isinstance(config, (str, type(None))):
+    return True
+
+  # Otherwise, must be a dict or an object of type `ParamsDict`.
+  if not isinstance(config, (dict, hyperparams.ParamsDict)):
+    return False
+
+  # If a dict, must have two keys: class_name and config.
+  d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
+  if set(d.keys()) != {'class_name', 'config'}:
+    return False
+
+  return True
 
 
 def _find_objects(modules, objtype):
