@@ -50,8 +50,8 @@ def train(config_file): # pylint: disable=missing-raises-doc
 
   # The following procedures do not support special objects.
   _set_global_config(serialized_params)
-  expname, expdir = _setup_directory(serialized_params, config_file)
-  sources = _get_data_sources(serialized_params)
+  exp_name, exp_dir = _setup_directory(serialized_params, config_file)
+  ds_container = _make_datasets(serialized_params)
 
   # Deserialize special objects such as random number generators and tunable
   # hyperparameters.
@@ -60,24 +60,24 @@ def train(config_file): # pylint: disable=missing-raises-doc
 
   if hp.space:
     # If a hyperparameter space is defined, launch tuning.
-    hypermodel = HyperModel(params, expname, expdir, sources)
-    tuner = _get_tuner(params, hypermodel, expdir)
+    hypermodel = HyperModel(params, exp_name, exp_dir, sources)
+    tuner = _get_tuner(params, hypermodel, exp_dir)
     tuner.search(epochs=params.training.epochs,
-                 callbacks=_get_callbacks(params, expdir, tuning=True))
+                 callbacks=_get_callbacks(params, exp_dir, tuning=True))
 
   else:
     try:
-      datasets, cachefiles = _build_datasets(params, expname, sources)
-      model = _build_model(params, datasets)
-      model, _ = _train_model(params, expdir, model, datasets)
-      _test_model(params, model, datasets, sources, expdir)
-      _clean_up(cachefiles)
+      ds_container = _transform_datasets(params, ds_container, exp_name)
+      model = _build_model(params, ds_container)
+      model, _ = _train_model(params, exp_dir, model, ds_container)
+      _test_model(params, model, ds_container, sources, exp_dir)
+      _clean_up(ds_container.cachefiles)
 
     except BaseException as err:
-      _clean_up(cachefiles)
+      _clean_up(ds_container.cachefiles)
       raise err
 
-  print(f"Done. Results saved to {expdir}.")
+  print(f"Done. Results saved to {exp_dir}.")
 
 
 def test(config_file): # pylint: disable=missing-raises-doc
@@ -100,42 +100,42 @@ def test(config_file): # pylint: disable=missing-raises-doc
 
   try:
     _set_global_config(serialized_params)
-    expname, expdir = _setup_directory(serialized_params, config_file)
-    sources = _get_data_sources(params)
-    datasets, cachefiles = _build_datasets(params, expname, sources)
-    model = _build_model(params, datasets)
-    _test_model(params, model, datasets, sources, expdir)
-    _clean_up(cachefiles)
+    exp_name, exp_dir = _setup_directory(serialized_params, config_file)
+    ds_container = _make_datasets(serialized_params)
+    ds_container = _transform_datasets(params, ds_container, exp_name)
+    model = _build_model(params, ds_container)
+    _test_model(params, model, ds_container, sources, exp_dir)
+    _clean_up(ds_container.cachefiles)
 
   except BaseException as err:
-    _clean_up(cachefiles)
+    _clean_up(ds_container.cachefiles)
     raise err
 
-  print(f"Done. Results saved to {expdir}.")
+  print(f"Done. Results saved to {exp_dir}.")
 
 
 class HyperModel(kt.HyperModel):
   """Custom hypermodel for Keras Declarative."""
-  def __init__(self, params, expname, expdir, sources, **kwargs):
+  def __init__(self, params, exp_name, exp_dir, sources, **kwargs):
     super().__init__(**kwargs)
     self.params = params
-    self.expname = expname
-    self.expdir = expdir
+    self.exp_name = exp_name
+    self.exp_dir = exp_dir
     self.sources = sources
-    self.datasets = None
+    self.ds_container = None
 
   def build(self, hp):
     """Builds a model."""
     params = config.inject_hyperparameters(self.params, hp)
-    self.datasets, cachefiles = _build_datasets(
-        params, self.expname, self.sources)
-    _clean_up(cachefiles)
-    return _build_model(params, self.datasets)
+    self.ds_container = _transform_datasets(
+        params, self.ds_container, self.exp_name)
+    _clean_up(ds_container.cachefiles)
+    return _build_model(params, self.ds_container)
 
   def fit(self, hp, model, *args, **kwargs): # pylint: disable=unused-argument
     """Trains a model."""
-    _, history = _train_model(self.params, self.expdir, model,
-                              self.datasets, *args, **kwargs)
+    _, history = _train_model(self.params, self.exp_dir, model,
+                              self.ds_container, *args, **kwargs)
     return history
 
 
@@ -164,29 +164,29 @@ def _setup_directory(params, config_file):
   path = params.experiment.path or os.getcwd()
 
   if params.experiment.name:
-    expname = params.experiment.name
+    exp_name = params.experiment.name
   else:
-    expname = os.path.splitext(os.path.basename(config_file[-1]))[0]
-    expname += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    exp_name = os.path.splitext(os.path.basename(config_file[-1]))[0]
+    exp_name += '_' + datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 
-  expdir = os.path.join(path, expname)
-  if tf.io.gfile.exists(expdir):
-    raise OSError(f"Directory {expdir} already exists.")
-  tf.io.gfile.makedirs(expdir)
+  exp_dir = os.path.join(path, exp_name)
+  if tf.io.gfile.exists(exp_dir):
+    raise OSError(f"Directory {exp_dir} already exists.")
+  tf.io.gfile.makedirs(exp_dir)
   hyperparams.save_params_dict_to_yaml(
-      params, os.path.join(expdir, 'config.yaml'))
+      params, os.path.join(exp_dir, 'config.yaml'))
 
-  return expname, expdir
+  return exp_name, exp_dir
 
 
-def _get_data_sources(params):
-  """Get training, validation and test HDF5 files.
+def _make_datasets(params):
+  """Makes datasets from the specified configuration.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
 
   Returns:
-    A tuple of three lists of HDF5 files.
+    A `DatasetContainer`.
 
   Raises:
     ValueError: If `data.sources` is `None`.
@@ -194,147 +194,198 @@ def _get_data_sources(params):
   if params.data.sources is None:
     raise ValueError("`data.sources` must be provided.")
 
-  train_sources = []
-  val_sources = []
-  test_sources = []
+  # Generate and concatenate datasets for each source.
+  for index, source in enumerate(params.data.sources):
+    if index == 0:
+      ds_container = _make_datasets_from_source(source, params.data.specs)
+    else:
+      ds_container += _make_datasets_from_source(source, params.data.specs)
 
-  for source in params.data.sources:
-    files = io.get_distributed_hdf5_filenames(source.path, source.prefix)
-    n = len(files)
+  # Set dataset options.
+  if params.data.options is not None:
+    options = tf.data.Options()
+    if params.data.options.max_intra_op_parallelism is not None:
+      options.threading.max_intra_op_parallelism = (
+          params.data.options.max_intra_op_parallelism)
+    if params.data.options.private_threadpool_size is not None:
+      options.threading.private_threadpool_size = (
+          params.data.options.private_threadpool_size)
+    ds_container = ds_container.with_options(options)
 
-    if source.split.mode == 'random':
-      random.shuffle(files)
-
-    get_n = lambda s, n=n: s if isinstance(s, int) else int(s * n)
-    n_train = get_n(source.split.train)
-    n_val = get_n(source.split.val)
-    n_test = get_n(source.split.test)
-
-    train_sources.extend(files[0:n_train])
-    val_sources.extend(files[n_train:n_train + n_val])
-    test_sources.extend(files[n_train + n_val:n_train + n_val + n_test])
-
-  # Shuffle all the data.
-  random.shuffle(train_sources)
-  random.shuffle(val_sources)
-  random.shuffle(test_sources)
-
-  return train_sources, val_sources, test_sources
+  return ds_container
 
 
-def _build_datasets(params, expname, sources):
-  """Set up datasets.
+def _make_datasets_from_source(source, specs):
+  """Make datasets from a generic source.
+
+  Args:
+    source: A `DataSourceConfig` object.
+
+  Returns:
+    A `DatasetContainer`.
+  """
+  if source.type == 'dlex':
+    return _make_dlex_datasets(source.dlex, specs)
+  elif source.format == 'tfds':
+    return _make_tfds_datasets(source.tfds, specs)
+  raise ValueError(f"Unsupported source type: {source.type}")
+
+
+def _make_dlex_datasets(source, specs):
+  """Makes datasets from DLEX source files.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
-    expname: A `str`. The experiment name.
-    sources: A tuple of three lists. The training files, validation files, and
-      test files.
 
   Returns:
-    A tuple of three datasets (train, validation, test) and a list of cache
-    files.
-
-  Raises:
-    ValueError: If `data.sources` was not specified.
+    A `DatasetContainer`.
   """
-  train_sources, val_sources, test_sources = sources
+  # Get filenames.
+  files = io.get_distributed_hdf5_filenames(source.path, source.prefix)
+  n = len(files)
+
+  # Get splits.
+  def _canonicalize_split(split):
+    if util.is_percent(split):
+      p = util.percent_to_float(split)
+      return int(p * n)
+    if not isinstance(split, int):
+      raise ValueError(f"Invalid split: {split}")
+    return split
+
+  n_train = _canonicalize_split(source.split.train)
+  n_val = _canonicalize_split(source.split.val)
+  n_test = _canonicalize_split(source.split.test)
+
+  # Split files.
+  if source.split.mode == 'random':
+    random.shuffle(files)
+  train_files = files[0:n_train]
+  val_files = files[n_train:n_train + n_val]
+  test_files = files[n_train + n_val:n_train + n_val + n_test]
+
+  # Shuffle files.
+  random.shuffle(train_files)
+  random.shuffle(val_files)
+  random.shuffle(test_files)
 
   # Get specs.
-  train_spec = _parse_spec_config(params.data.train_spec)
-  val_spec = _parse_spec_config(params.data.val_spec)
-  test_spec = _parse_spec_config(params.data.test_spec)
+  train_spec = _parse_spec_config(specs.train)
+  val_spec = _parse_spec_config(specs.val)
+  test_spec = _parse_spec_config(specs.test)
 
-  # Prepend a slash to the spec names.
+  # Prepend a slash to the spec names. This is needed for HDF5 dataset names.
   def _prepend_slashes(spec):
-    return {f"/{k}": tf.TensorSpec.from_spec(v, name=f"{k}") for k, v in spec.items()}
+    return {f"/{k}": tf.TensorSpec.from_spec(v, name=f"{k}")
+            for k, v in spec.items()}
   train_spec = _prepend_slashes(train_spec)
   val_spec = _prepend_slashes(val_spec)
   test_spec = _prepend_slashes(test_spec)
 
-  # Some functions.
+  # Create datasets.
+  train_ds = tf.data.Dataset.from_tensor_slices(
+      tf.convert_to_tensor(list(map(str, train_files)), dtype=tf.string))
+  val_ds = tf.data.Dataset.from_tensor_slices(
+      tf.convert_to_tensor(list(map(str, val_files)), dtype=tf.string))
+  test_ds = tf.data.Dataset.from_tensor_slices(
+      tf.convert_to_tensor(list(map(str, test_files)), dtype=tf.string))
+
+  # Add data read operation.
   def _read_hdf5(filename, spec=None):
     hdf5_io_tensor = tfio.IOTensor.from_hdf5(filename, spec=spec)
     tensors = {k: hdf5_io_tensor(k).to_tensor() for k in hdf5_io_tensor.keys}
     return {k: tf.ensure_shape(v, spec[k].shape) for k, v in tensors.items()}
-
-  def _get_outputs(x):
-    out = list(x.values())
-    return out[0] if len(out) == 1 else out
-
-  # Create datasets.
-  train_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(train_sources, dtype=tf.string))
-  val_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(val_sources, dtype=tf.string))
-  test_dataset = tf.data.Dataset.from_tensor_slices(
-      tf.convert_to_tensor(test_sources, dtype=tf.string))
-
-  # Add data read.
-  train_dataset = train_dataset.map(
+  train_ds = train_ds.map(
       functools.partial(_read_hdf5, spec=train_spec))
-  val_dataset = val_dataset.map(
+  val_ds = val_ds.map(
       functools.partial(_read_hdf5, spec=val_spec))
-  test_dataset = test_dataset.map(
+  test_ds = test_ds.map(
       functools.partial(_read_hdf5, spec=test_spec))
   
+  # Remove the slashes added previously.
   def _remove_slashes(structure):
     if isinstance(structure, dict):
       return {k[1:]: v for k, v in structure.items()}
     return structure
+  train_ds = train_ds.map(_remove_slashes)
+  val_ds = val_ds.map(_remove_slashes)
+  test_ds = test_ds.map(_remove_slashes)
 
-  train_dataset = train_dataset.map(_remove_slashes)
-  val_dataset = val_dataset.map(_remove_slashes)
-  test_dataset = test_dataset.map(_remove_slashes)
+  # Get the dataset keys (obtained from filenames).
+  train_keys = [f.stem for f in train_files]
+  val_keys = [f.stem for f in val_files]
+  test_keys = [f.stem for f in test_files]
 
-  # Extract outputs.
-  # train_dataset = train_dataset.map(_get_outputs)
-  # val_dataset = val_dataset.map(_get_outputs)
-  # test_dataset = test_dataset.map(_get_outputs)
+  return util.DatasetContainer({
+      'train': (train_keys, train_ds),
+      'val': (val_keys, val_ds),
+      'test': (test_keys, test_ds)
+  })
 
+
+def _make_tfds_datasets(source, specs):
+  """Makes datasets from a TFDS source.
+
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+
+  Returns:
+    A `DatasetContainer`.
+  """
+  # TODO(jmontalt): Implement this.
+  raise NotImplementedError
+
+
+def _transform_datasets(params, ds_container, exp_name):
+  """Transforms the datasets.
+
+  Args:
+    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    ds_container: A `DatasetContainer`.
+    exp_name: A `str`. The experiment name.
+
+  Returns:
+    The transformed `DatasetContainer`.
+
+  Raises:
+    ValueError: If `data.sources` was not specified.
+  """
   # Add user-specified transforms to each dataset.
-  cachefiles = []
-  train_dataset, cachefiles = _add_transforms(
-      train_dataset, params.data.train_transforms, params.data.options,
-      expname, cachefiles, 'train')
-  val_dataset, cachefiles = _add_transforms(
-      val_dataset, params.data.val_transforms, params.data.options,
-      expname, cachefiles, 'val')
-  test_dataset, cachefiles = _add_transforms(
-      test_dataset, params.data.test_transforms, params.data.options,
-      expname, cachefiles, 'test')
+  ds_container = _add_transforms(
+      ds_container, 'train', params.data.transforms.train,
+      params.data.options, exp_name)
+  ds_container = _add_transforms(
+      ds_container, 'val', params.data.transforms.val,
+      params.data.options, exp_name)
+  ds_container = _add_transforms(
+      ds_container, 'test', params.data.transforms.test,
+      params.data.options, exp_name)
 
-  # Set the dataset options.
-  train_dataset = _set_dataset_options(train_dataset, params.data.options)
-  val_dataset = _set_dataset_options(val_dataset, params.data.options)
-  test_dataset = _set_dataset_options(test_dataset, params.data.options)
-
-  # Pack and return.
-  datasets = train_dataset, val_dataset, test_dataset
-
-  return datasets, cachefiles
+  return ds_container
 
 
-def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
+def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
   """Add configured transforms to dataset.
 
   Args:
-    dataset: A `tf.data.Dataset`.
+    dataset: A `DatasetContainer`.
+    ds_name: The name of the dataset currently being processed. One of
+      `'train'`, `'val'` or `'test'`.
     transforms: A list of `DataTransformConfig`.
     options: A `DataOptionsConfig`.
-    expname: A `str`. The experiment name.
-    cachefiles: A list of cache files.
-    dstype: The type of this dataset. One of `'train'`, `'val'` or `'test'`.
+    exp_name: A `str`. The experiment name.
 
   Returns:
-    A `tf.data.Dataset` and a list of cache files.
+    A `DatasetContainer`.
 
   Raises:
     ValueError: If a transform is not known or supported.
   """
+  ds_container = ds_container.select(ds_name)
+
   for transform in transforms or []:
     if transform.type == 'batch':
-      dataset = dataset.batch(
+      ds_container = ds_container.batch(
           transform.batch.batch_size,
           drop_remainder=transform.batch.drop_remainder,
           num_parallel_calls=transform.batch.num_parallel_calls,
@@ -342,34 +393,33 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
 
     elif transform.type == 'cache':
       # Delete the cache file if it exists.
-      cachefile = f'{transform.cache.filename}.{expname}.{dstype}'
-      cachefiles.append(cachefile)
+      cachefile = f'{transform.cache.filename}.{exp_name}'
       for file in glob.glob(cachefile + '*'):
         os.remove(file)
-      dataset = dataset.cache(filename=cachefile)
+      ds_container = ds_container.cache(filename=cachefile)
 
     elif transform.type == 'filter':
       predicate = objects.get_predicate(transform.filter.predicate)
-      dataset = dataset.filter(predicate)
+      ds_container = ds_container.filter(predicate)
 
     elif transform.type == 'map':
       map_func = objects.get_layer(transform.map.map_func)
-      dataset = dataset.map(
+      ds_container = ds_container.map(
           _maybe_decorate_map_func(map_func, transform.map.component,
                                    transform.map.output),
           num_parallel_calls=transform.map.num_parallel_calls,
           deterministic=transform.map.deterministic)
 
     elif transform.type == 'prefetch':
-      dataset = dataset.prefetch(transform.prefetch.buffer_size)
+      ds_container = ds_container.prefetch(transform.prefetch.buffer_size)
 
     elif transform.type == 'repeat':
-      dataset = dataset.repeat(transform.repeat.count)
+      ds_container = ds_container.repeat(transform.repeat.count)
 
     elif transform.type == 'shuffle':
-      if dstype != 'train' and options.shuffle_training_only:
+      if ds_name != 'train' and options.shuffle_training_only:
         continue
-      dataset = dataset.shuffle(
+      ds_container = ds_container.shuffle(
           transform.shuffle.buffer_size,
           seed=transform.shuffle.seed,
           reshuffle_each_iteration=transform.shuffle.reshuffle_each_iteration)
@@ -377,46 +427,20 @@ def _add_transforms(dataset, transforms, options, expname, cachefiles, dstype):
     else:
       raise ValueError(f"Unknown transform type: {transform.type}")
 
-  return dataset, cachefiles
+  ds_container = ds_container.unselect()
+  return ds_container
 
 
-def _set_dataset_options(dataset, options_config):
-  """Set dataset options.
-
-  Args:
-    dataset: A `tf.data.Dataset`.
-    options_config: A `DataOptionsConfig`.
-
-  Returns:
-    A `tf.data.Dataset` with the specified options set.
-  """
-  if options_config is None:
-    return dataset
-
-  options = tf.data.Options()
-
-  if options_config.max_intra_op_parallelism is not None:
-    options.threading.max_intra_op_parallelism = (
-        options_config.max_intra_op_parallelism)
-  if options_config.private_threadpool_size is not None:
-    options.threading.private_threadpool_size = (
-        options_config.private_threadpool_size)
-
-  return dataset.with_options(options)
-
-
-def _build_model(params, datasets):
+def _build_model(params, ds_container):
   """Train a model.
 
   Args:
     params: A `TrainWorkflowConfig`.
-    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    ds_container: A `DatasetContainer`.
 
   Returns:
     A trained `tf.keras.Model`.
   """
-  train_dataset, _, _ = datasets
-
   def _build_model_internal():
 
     if params.model.path is not None:
@@ -434,7 +458,7 @@ def _build_model(params, datasets):
       else:
         # Model input spec not specified explicitly. Infer from training dataset.
         input_spec, _, _ = tf.keras.utils.unpack_x_y_sample_weight(
-            train_dataset.element_spec)
+            ds_container.train_ds.element_spec)
 
       # Network.
       model = util.model_from_layers(layer, input_spec)
@@ -469,44 +493,37 @@ def _build_model(params, datasets):
   return _build_model_internal()
 
 
-def _train_model(params, expdir, model, datasets, **kwargs):
+def _train_model(params, exp_dir, model, ds_container, **kwargs):
   """Trains a Keras model.
 
   Args:
     params: A `TrainWorkflowConfig`.
-    expdir: A `str`. The experiment directory.
+    exp_dir: A `str`. The experiment directory.
     model: A `tf.keras.Model`.
-    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    ds_container: A `DatasetContainer`.
     **kwargs: Keyword arguments to be passed to `fit`. Can be used by a tuner to
       override `fit` parameters.
 
   Returns:
     A trained `tf.keras.Model`.
   """
-  train_dataset, val_dataset, test_dataset = datasets
-  dataset = {
-      'train': train_dataset,
-      'val': val_dataset,
-      'test': test_dataset
-  }
-
   # Get callbacks.
   callbacks = kwargs.get('callbacks') or _get_callbacks(
-      params, expdir, datasets)
+      params, exp_dir, ds_container)
 
   # Patch TensorBoardImages dataset.
   for callback in callbacks:
     if callback.__class__.__name__.startswith("TensorBoardImages"):
       dataset_name = getattr(callback, 'dataset_name', 'val')
-      callback.x = dataset[dataset_name]
+      callback.x = ds_container.datasets[dataset_name]
 
-  kwargs['x'] = train_dataset
+  kwargs['x'] = ds_container.train_ds
   if 'epochs' not in kwargs:
     kwargs['epochs'] = params.training.epochs
   if 'verbose' not in kwargs:
     kwargs['verbose'] = params.training.verbose
   kwargs['callbacks'] = callbacks
-  kwargs['validation_data'] = val_dataset
+  kwargs['validation_data'] = ds_container.val_ds
 
   print("Training...")
   history = model.fit(**kwargs)
@@ -515,24 +532,24 @@ def _train_model(params, expdir, model, datasets, **kwargs):
   return model, history
 
 
-def _test_model(params, model, datasets, sources, expdir):
+def _test_model(params, model, ds_container, sources, exp_dir):
   """Tests a model.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     model: A `tf.keras.Model`.
-    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    ds_container: A `DatasetContainer`.
     sources: A tuple of three lists of sources (train, val, test).
-    expdir: A `str`. The experiment directory.
+    exp_dir: A `str`. The experiment directory.
   """
   print("Predicting...")
-  train_dataset, val_dataset, test_dataset = datasets
+  train_ds, val_ds, test_ds = datasets
   train_sources, val_sources, test_sources = sources
 
   datasets = {
-      'train': train_dataset,
-      'val': val_dataset,
-      'test': test_dataset
+      'train': train_ds,
+      'val': val_ds,
+      'test': test_ds
   }
 
   sources = {
@@ -548,15 +565,15 @@ def _test_model(params, model, datasets, sources, expdir):
 
   datasets = {k: datasets[k] for k in dataset_keys}
 
-  pred_path = _get_pred_path(params, expdir)
+  pred_path = _get_pred_path(params, exp_dir)
   tf.io.gfile.makedirs(pred_path)
 
   if params.predict.save_images:
-    image_path = _get_image_path(params, expdir)
+    image_path = _get_image_path(params, exp_dir)
     tf.io.gfile.makedirs(image_path)
 
   if params.predict.evaluate:
-    eval_path = _get_eval_path(params, expdir)
+    eval_path = _get_eval_path(params, exp_dir)
     tf.io.gfile.makedirs(eval_path)
 
   input_names = defaultdict(lambda key: 'input_' + str(key))
@@ -733,22 +750,20 @@ def _maybe_decorate_map_func(map_func, component=None, output=None):
   return _map_func
 
 
-def _get_callbacks(params, expdir, datasets=None, tuning=False):
+def _get_callbacks(params, exp_dir, ds_container=None, tuning=False):
   """Gets the callbacks.
 
   Creates default callbacks and user callbacks.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
-    expdir: A `str`. The experiment directory.
-    datasets: (optional) A tuple of three `tf.data.Dataset` (train, val, test).
+    exp_dir: A `str`. The experiment directory.
+    datasets: (optional) A `DatasetContainer`.
     tuning: (optional) A `bool`. Whether this is being called by a tuner.
 
   Returns:
     A list of `tf.keras.callbacks.Callback`.
   """
-  val_dataset = datasets[1] if datasets is not None else None
-
   # Complete callback configs.
   callback_configs = params.training.callbacks
 
@@ -787,11 +802,11 @@ def _get_callbacks(params, expdir, datasets=None, tuning=False):
 
     remaining_callback_configs.append(value)
 
-  checkpoint_callback = _get_checkpoint_callback(params, expdir,
+  checkpoint_callback = _get_checkpoint_callback(params, exp_dir,
                                                  kwargs=checkpoint_kwargs)
-  tensorboard_callback = _get_tensorboard_callback(params, expdir,
+  tensorboard_callback = _get_tensorboard_callback(params, exp_dir,
                                                    kwargs=tensorboard_kwargs)
-  images_callback = _get_images_callback(params, expdir, datasets,
+  images_callback = _get_images_callback(params, exp_dir, ds_container,
                                          images_class_name,
                                          kwargs=images_kwargs)
 
@@ -822,12 +837,12 @@ def _flatten_and_unbatch_nested_tensors(structure):
   return [tf.unstack(x) for x in tf.nest.flatten(structure)]
 
 
-def _get_checkpoint_callback(params, expdir, kwargs=None):
+def _get_checkpoint_callback(params, exp_dir, kwargs=None):
   """Gets the model checkpoint callback.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
-    expdir: A `str`. The experiment directory.
+    exp_dir: A `str`. The experiment directory.
     kwargs: (optional) A `dict`. Keyword arguments for the callback.
 
   Returns:
@@ -848,17 +863,17 @@ def _get_checkpoint_callback(params, expdir, kwargs=None):
   kwargs = {**default_kwargs, **kwargs} if kwargs else default_kwargs
 
   if kwargs['filepath'] is None:
-    kwargs['filepath'] = _get_ckpt_path(expdir, kwargs)
+    kwargs['filepath'] = _get_ckpt_path(exp_dir, kwargs)
 
   return tf.keras.callbacks.ModelCheckpoint(**kwargs)
 
 
-def _get_tensorboard_callback(params, expdir, kwargs=None):
+def _get_tensorboard_callback(params, exp_dir, kwargs=None):
   """Gets the TensorBoard callback.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
-    expdir: A `str`. The experiment directory.
+    exp_dir: A `str`. The experiment directory.
     kwargs: (optional) A `dict`. Keyword arguments for the callback.
 
   Returns:
@@ -868,7 +883,7 @@ def _get_tensorboard_callback(params, expdir, kwargs=None):
     return None
 
   default_kwargs = dict(
-      log_dir=_get_logs_path(params, expdir),
+      log_dir=_get_logs_path(params, exp_dir),
       histogram_freq=0,
       write_graph=True,
       write_images=False,
@@ -881,13 +896,13 @@ def _get_tensorboard_callback(params, expdir, kwargs=None):
   return tf.keras.callbacks.TensorBoard(**kwargs)
 
 
-def _get_images_callback(params, expdir, datasets, class_name, kwargs=None):
+def _get_images_callback(params, exp_dir, ds_container, class_name, kwargs=None):
   """Gets the images callback.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
-    expdir: A `str`. The experiment directory.
-    datasets: A tuple of three `tf.data.Dataset` (train, val, test).
+    exp_dir: A `str`. The experiment directory.
+    ds_container: A `DatasetContainer`.
     class_name: A `str`. The class name of the images callback.
     kwargs: (optional) A `dict`. Keyword arguments for the callback.
 
@@ -900,17 +915,10 @@ def _get_images_callback(params, expdir, datasets, class_name, kwargs=None):
   if kwargs is None:
     return None
 
-  train_dataset, val_dataset, test_dataset = datasets
-  dataset = {
-      'train': train_dataset,
-      'val': val_dataset,
-      'test': test_dataset
-  }
-
   dataset_name = kwargs.pop('x', 'val')
   default_kwargs = dict(
-      x=dataset[dataset_name],
-      log_dir=_get_logs_path(params, expdir)
+      x=ds_container.datasets[dataset_name],
+      log_dir=_get_logs_path(params, exp_dir)
   )
 
   kwargs = {**default_kwargs, **kwargs} if kwargs else default_kwargs
@@ -925,14 +933,14 @@ def _get_images_callback(params, expdir, datasets, class_name, kwargs=None):
   return callback
 
 
-def _get_ckpt_path(expdir, checkpoint_kwargs): # pylint: disable=missing-param-doc
+def _get_ckpt_path(exp_dir, checkpoint_kwargs): # pylint: disable=missing-param-doc
   """Gets path to checkpoints."""
   # Get relevant checkpoint configuration.
   monitor = checkpoint_kwargs['monitor']
   save_weights_only = checkpoint_kwargs['save_weights_only']
 
   # The checkpoint directory. Create if necessary.
-  path = os.path.join(expdir, 'ckpt')
+  path = os.path.join(exp_dir, 'ckpt')
   tf.io.gfile.makedirs(path)
 
   # The checkpoint filename.
@@ -942,27 +950,27 @@ def _get_ckpt_path(expdir, checkpoint_kwargs): # pylint: disable=missing-param-d
   return os.path.join(path, filename)
 
 
-def _get_logs_path(params, expdir): # pylint: disable=unused-argument
+def _get_logs_path(params, exp_dir): # pylint: disable=unused-argument
   """Gets path to TensorBoard logs."""
-  return os.path.join(expdir, 'logs')
+  return os.path.join(exp_dir, 'logs')
 
 
-def _get_pred_path(params, expdir): # pylint: disable=unused-argument
+def _get_pred_path(params, exp_dir): # pylint: disable=unused-argument
   """Gets path to predictions."""
-  return os.path.join(expdir, 'pred')
+  return os.path.join(exp_dir, 'pred')
 
 
-def _get_image_path(params, expdir): # pylint: disable=unused-argument
+def _get_image_path(params, exp_dir): # pylint: disable=unused-argument
   """Gets path to images."""
-  return os.path.join(expdir, 'image')
+  return os.path.join(exp_dir, 'image')
 
 
-def _get_eval_path(params, expdir): # pylint: disable=unused-argument
+def _get_eval_path(params, exp_dir): # pylint: disable=unused-argument
   """Gets path to evaluation results."""
-  return os.path.join(expdir, 'eval')
+  return os.path.join(exp_dir, 'eval')
 
 
-def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-docstring
+def _get_tuner(params, hypermodel, exp_dir): # pylint: disable=missing-function-docstring
 
   if params.tuning.tuner is None:
     return None
@@ -980,7 +988,7 @@ def _get_tuner(params, hypermodel, expdir): # pylint: disable=missing-function-d
     kwargs['objective'] = kt.Objective(**kwargs['objective'])
 
   kwargs['hypermodel'] = hypermodel
-  kwargs['directory'] = expdir
+  kwargs['directory'] = exp_dir
   kwargs['project_name'] = 'tuning'
 
   return tuners[name](**kwargs)

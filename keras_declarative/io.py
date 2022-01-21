@@ -17,6 +17,7 @@
 import glob
 import math
 import os
+import pathlib
 import shutil
 
 import h5py
@@ -231,6 +232,9 @@ def get_distributed_hdf5_filenames(dirpath, prefixes=None, indices=None):
 
   elif prefixes is None and indices is not None:
     raise ValueError("`indices` must be specified together with `prefixes`.")
+
+  # Convert to pathlib objects.
+  filenames = [pathlib.Path(f) for f in filenames]
 
   return filenames
 

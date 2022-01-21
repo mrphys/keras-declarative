@@ -65,6 +65,137 @@ def model_from_layers(layers, input_spec):
   return tf.keras.Model(inputs=inputs, outputs=outputs)
 
 
+class DatasetContainer():
+  """A container for datasets.
+
+  Holds multiple `tf.data.Datasets` and their corresponding example keys.
+
+  Args:
+    keys_and_datasets: A dict of (example keys, dataset) tuples keyed by the
+      dataset names.
+  """
+  def __init__(self, keys_and_datasets):
+    self._keys_and_datasets = {k: list(v) for k, v in keys_and_datasets.items()}
+    self._cachefiles = {k: [] for k in self.names}
+    self._selected_names = None
+
+  @property
+  def datasets(self):
+    return {k: v[1] for k, v in self._keys_and_datasets.items()}
+
+  @property
+  def example_keys(self):
+    return {k: v[0] for k, v in self._keys_and_datasets.items()}
+
+  @property
+  def names(self):
+    return list(self._keys_and_datasets.keys())
+
+  @property
+  def cachefiles(self):
+    return self._cachefiles
+
+  @property
+  def train_ds(self):
+    return self.datasets['train']
+  
+  @property
+  def val_ds(self):
+    return self.datasets['val']
+
+  @property
+  def test_ds(self):
+    return self.datasets['test']
+
+  @property
+  def train_keys(self):
+    return self.example_keys['train']
+  
+  @property
+  def val_keys(self):
+    return self.example_keys['val']
+  
+  @property
+  def test_keys(self):
+    return self.example_keys['test']
+
+  def __len__(self):
+    """Returns the number of datasets held by this container."""
+    return len(self._datasets)
+
+  def __getitem__(self, name):
+    """Returns the keys-dataset pair for the given dataset name."""
+    return tuple(self._keys_and_datasets[name])
+
+  def __repr__(self):
+    return f"DatasetContainer(names={self.names})"
+
+  def __add__(self, other):
+    """Combines two dataset containers."""
+    if not isinstance(other, DatasetContainer):
+      raise TypeError(f"`other` must be a DatasetContainer, got {type(other)}.")
+
+    if self.names != other.names:
+      raise ValueError(f"Dataset names must match, got {self.names} and "
+                       f"{other.names}.")
+
+    return DatasetContainer({
+        name: (self.example_keys[name] + other.example_keys[name],
+               self.datasets[name].concatenate(other.datasets[name]))
+        for name in self.names
+    })
+
+  def select(self, names):
+    """Selects the specified datasets for future transformations."""
+    if not isinstance(names, (list, tuple)):
+      names = [names]
+    self._selected_names = names
+    return self
+
+  def unselect(self):
+    self._selected_names = None
+    return self
+
+  def batch(self, *args, **kwargs):
+    """Calls `batch` on one or more datasets held by this container."""
+    return self._transform_datasets('batch', *args, **kwargs)
+
+  def cache(self, filename='', name=None):
+    """Calls `cache` on one or more datasets held by this container."""
+    # We need to copy-paste here to adapt the behaviour of
+    # `_transform_datasets`.
+    for name in (self._selected_names or self.names):
+      cachefile = filename + f'-{name}' if filename else filename
+      if cachefile:
+        self._cachefiles.append(cachefile)
+      self._keys_and_datasets[name][1] = getattr(self.datasets[name], method)(
+          filename=cachefile, name=name)
+    return self
+
+  def map(self, *args, **kwargs):
+    """Calls `map` on one or more datasets held by this container."""
+    return self._transform_datasets('map', *args, **kwargs)
+
+  def prefetch(self, *args, **kwargs):
+    """Calls `prefetch` on one or more datasets held by this container."""
+    return self._transform_datasets('prefetch', *args, **kwargs)
+
+  def shuffle(self, *args, **kwargs):
+    """Calls `shuffle` on one or more datasets held by this container."""
+    return self._transform_datasets('shuffle', *args, **kwargs)
+
+  def with_options(self, *args, **kwargs):
+    """Calls `with_options` on one or more datasets held by this container."""
+    return self._transform_datasets('with_options', *args, **kwargs)
+
+  def _transform_datasets(self, method, *args, **kwargs):
+    """Calls method `method` on one or more datasets held by this container."""
+    for name in (self._selected_names or self.names):
+      self._keys_and_datasets[name][1] = getattr(self.datasets[name], method)(
+          *args, **kwargs)
+    return self
+
+
 class ExternalObject():
   """An object loaded from an external module.
 
@@ -163,3 +294,22 @@ class Hyperband(TunerMixin, kt.Hyperband):
           )
       )
     return model
+
+
+def is_float(s):
+  """Returns `True` is string is a valid representation of a float."""
+  try:
+    float(s)
+    return True
+  except ValueError:
+    return False
+
+
+def is_percent(s):
+  """Returns `True` is string is a valid representation of a percentage."""
+  return s.endswith("%") and is_float(s[:-1])
+
+
+def percent_to_float(s):
+  """Converts a percentage string to a float."""
+  return float(s[:-1]) / 100

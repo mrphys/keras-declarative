@@ -14,11 +14,11 @@
 # ==============================================================================
 """Configuration."""
 
-import pathlib
 import copy
 import dataclasses
-from typing import List, Union, Optional
 import importlib.util
+import pathlib
+from typing import List, Union, Optional
 
 import keras_tuner as kt
 import tensorflow as tf
@@ -41,11 +41,26 @@ class DataSplitConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class DataSourceConfig(hyperparams.Config):
-  """Data source configuration."""
+class DlexDataSourceConfig(hyperparams.Config):
+  """DLEX data source configuration."""
   path: str = None
   prefix: str = None
   split: DataSplitConfig = DataSplitConfig()
+
+
+@dataclasses.dataclass
+class TfdsDataSourceConfig(hyperparams.Config):
+  """TFDS data source configuration."""
+  name: str = None
+  version: str = None
+
+
+@dataclasses.dataclass
+class DataSourceConfig(hyperparams.OneOfConfig):
+  """Data source configuration"""
+  type: str = None
+  dlex: DlexDataSourceConfig = DlexDataSourceConfig()
+  tfds: TfdsDataSourceConfig = TfdsDataSourceConfig()
 
 
 @dataclasses.dataclass
@@ -54,6 +69,14 @@ class TensorSpecConfig(hyperparams.Config):
   name: Optional[Union[str, int]] = None
   shape: List[int] = None
   dtype: str = 'float32'
+
+
+@dataclasses.dataclass
+class DataSpecsConfig(hyperparams.Config):
+  """Specs configuration."""
+  train: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+  val: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+  test: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
 
 
 class ObjectConfig(hyperparams.ParamsDict):
@@ -132,15 +155,19 @@ class DataOptionsConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class DataTransformsConfig(hyperparams.Config):
+  """Data transforms configuration."""
+  train: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  val: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  test: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+
+
+@dataclasses.dataclass
 class DataConfig(hyperparams.Config):
   """Data configuration."""
   sources: List[DataSourceConfig] = dataclasses.field(default_factory=list)
-  train_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  val_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  test_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  train_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
-  val_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
-  test_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  specs: DataSpecsConfig = DataSpecsConfig()
+  transforms: DataTransformsConfig = DataTransformsConfig()
   options: DataOptionsConfig = DataOptionsConfig()
 
 
@@ -305,8 +332,8 @@ class TestWorkflowConfig(hyperparams.Config):
 def deserialize_special_objects(params):
   """Deserialize special objects.
 
-  Special objects include random numbers, random number generators and tunable
-  hyperparameters.
+  Special objects include random numbers, random number generators, tunable
+  hyperparameters and external module objects.
 
   Note that the output of this function can no longer be safely serialized and
   should not be written to YAML.
