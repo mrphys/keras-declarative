@@ -3,4 +3,5 @@ keras-tuner
 pandas
 pyyaml
 tensorflow
+tensorflow-datasets
 tensorflow-io

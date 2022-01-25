@@ -32,8 +32,8 @@ from keras_declarative import util
 
 
 @dataclasses.dataclass
-class DataSplitConfig(hyperparams.Config):
-  """Data split configuration."""
+class DlexDataSplitConfig(hyperparams.Config):
+  """Data split configuration (DLEX)."""
   train: float = 0.0
   val: float = 0.0
   test: float = 0.0
@@ -41,11 +41,19 @@ class DataSplitConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class TfdsDataSplitConfig(hyperparams.Config):
+  """Data split configuration (TFDS)."""
+  train: str = None
+  val: str = None
+  test: str = None
+
+
+@dataclasses.dataclass
 class DlexDataSourceConfig(hyperparams.Config):
   """DLEX data source configuration."""
   path: str = None
   prefix: str = None
-  split: DataSplitConfig = DataSplitConfig()
+  split: DlexDataSplitConfig = DlexDataSplitConfig()
 
 
 @dataclasses.dataclass
@@ -53,6 +61,8 @@ class TfdsDataSourceConfig(hyperparams.Config):
   """TFDS data source configuration."""
   name: str = None
   version: str = None
+  split: TfdsDataSplitConfig = TfdsDataSplitConfig()
+  data_dir: str = None
 
 
 @dataclasses.dataclass

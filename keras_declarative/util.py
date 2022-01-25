@@ -76,7 +76,7 @@ class DatasetContainer():
   """
   def __init__(self, keys_and_datasets):
     self._keys_and_datasets = {k: list(v) for k, v in keys_and_datasets.items()}
-    self._cachefiles = {k: [] for k in self.names}
+    self._cachefiles = []
     self._selected_names = None
 
   @property
@@ -84,7 +84,7 @@ class DatasetContainer():
     return {k: v[1] for k, v in self._keys_and_datasets.items()}
 
   @property
-  def example_keys(self):
+  def example_ids(self):
     return {k: v[0] for k, v in self._keys_and_datasets.items()}
 
   @property
@@ -109,15 +109,15 @@ class DatasetContainer():
 
   @property
   def train_keys(self):
-    return self.example_keys['train']
+    return self.example_ids['train']
   
   @property
   def val_keys(self):
-    return self.example_keys['val']
+    return self.example_ids['val']
   
   @property
   def test_keys(self):
-    return self.example_keys['test']
+    return self.example_ids['test']
 
   def __len__(self):
     """Returns the number of datasets held by this container."""
@@ -140,7 +140,7 @@ class DatasetContainer():
                        f"{other.names}.")
 
     return DatasetContainer({
-        name: (self.example_keys[name] + other.example_keys[name],
+        name: (self.example_ids[name] + other.example_ids[name],
                self.datasets[name].concatenate(other.datasets[name]))
         for name in self.names
     })
@@ -168,7 +168,7 @@ class DatasetContainer():
       cachefile = filename + f'-{name}' if filename else filename
       if cachefile:
         self._cachefiles.append(cachefile)
-      self._keys_and_datasets[name][1] = getattr(self.datasets[name], method)(
+      self._keys_and_datasets[name][1] = self.datasets[name].cache(
           filename=cachefile, name=name)
     return self
 

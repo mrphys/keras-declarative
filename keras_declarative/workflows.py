@@ -20,11 +20,13 @@ import functools
 import glob
 import os
 import random
+import tempfile
 
 import keras_tuner as kt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+import tensorflow_datasets as tfds
 import tensorflow_io as tfio
 
 from keras_declarative import hyperparams
@@ -226,7 +228,7 @@ def _make_datasets_from_source(source, specs):
   """
   if source.type == 'dlex':
     return _make_dlex_datasets(source.dlex, specs)
-  elif source.format == 'tfds':
+  elif source.type == 'tfds':
     return _make_tfds_datasets(source.tfds, specs)
   raise ValueError(f"Unsupported source type: {source.type}")
 
@@ -332,8 +334,23 @@ def _make_tfds_datasets(source, specs):
   Returns:
     A `DatasetContainer`.
   """
-  # TODO(jmontalt): Implement this.
-  raise NotImplementedError
+  name = source.name
+  if source.version is not None:
+    name = f"{name}:{source.version}"
+
+  datasets, info = tfds.load(
+      name,
+      split={k: v for k, v in source.split.as_dict().items() if v is not None},
+      data_dir=source.data_dir,
+      read_config=tfds.ReadConfig(try_autocache=False,
+                                  add_tfds_id=True,
+                                  interleave_cycle_length=1,
+                                  interleave_block_length=1,
+                                  skip_prefetch=True),
+      with_info=True)
+
+  # TODO(jmontalt): add support for example IDs.
+  return util.DatasetContainer({k: (None, v) for k, v in datasets.items()})
 
 
 def _transform_datasets(params, ds_container, exp_name):
@@ -392,8 +409,11 @@ def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
           deterministic=transform.batch.deterministic)
 
     elif transform.type == 'cache':
+      cachefile = transform.cache.filename
+      if cachefile is None:  # Auto-naming.
+        cachefile = os.path.join(tempfile.gettempdir(),
+                                 f'tfdata_cache-{exp_name}')
       # Delete the cache file if it exists.
-      cachefile = f'{transform.cache.filename}.{exp_name}'
       for file in glob.glob(cachefile + '*'):
         os.remove(file)
       ds_container = ds_container.cache(filename=cachefile)
