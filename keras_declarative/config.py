@@ -14,13 +14,17 @@
 # ==============================================================================
 """Configuration."""
 
+import copy
 import dataclasses
+import importlib.util
+import pathlib
 from typing import List, Union, Optional
 
+import keras_tuner as kt
 import tensorflow as tf
 
-from official.modeling import hyperparams
-
+from keras_declarative import hyperparams
+from keras_declarative import util
 
 # NOTE: This file is more easily read from the bottom up, as the more generic
 # configuration elements are at the bottom and become more specific towards the
@@ -28,20 +32,82 @@ from official.modeling import hyperparams
 
 
 @dataclasses.dataclass
-class DataSplitConfig(hyperparams.Config):
-  """Data split configuration."""
-  train: float = 0.0
-  val: float = 0.0
-  test: float = 0.0
+class DlexDataSplitConfig(hyperparams.Config):
+  """Data split configuration (DLEX).
+
+  Attributes:
+    train: The training split. Can be an integer (e.g. 50) to use a fixed
+      number of examples, or a percentage (e.g. 50%) to use a fixed percentage
+      of the total number of examples.
+    val: The validation split. Can be an integer (e.g. 50) to use a fixed
+      number of examples, or a percentage (e.g. 50%) to use a fixed percentage
+      of the total number of examples.
+    test: The test split. Can be an integer (e.g. 50) to use a fixed number of
+      examples, or a percentage (e.g. 50%) to use a fixed percentage of the
+      total number of examples.
+  """
+  train: int = 0
+  val: int = 0
+  test: int = 0
   mode: str = 'random'
 
 
 @dataclasses.dataclass
-class DataSourceConfig(hyperparams.Config):
-  """Data source configuration."""
+class TfdsDataSplitConfig(hyperparams.Config):
+  """Data split configuration (TFDS).
+
+  Attributes:
+    train: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+    val: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+    test: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+  """
+  train: str = None
+  val: str = None
+  test: str = None
+
+
+@dataclasses.dataclass
+class DlexDataSourceConfig(hyperparams.Config):
+  """DLEX data source configuration.
+
+  Attributes:
+    path: Path to the directory containing the DLEX files.
+    prefix: The prefix of the DLEX files.
+    split: The split configuration.
+  """
   path: str = None
   prefix: str = None
-  split: DataSplitConfig = DataSplitConfig()
+  split: DlexDataSplitConfig = DlexDataSplitConfig()
+
+
+@dataclasses.dataclass
+class TfdsDataSourceConfig(hyperparams.Config):
+  """TFDS data source configuration.
+
+  Attributes:
+    name: The name of the TFDS dataset.
+    version: The version of the TFDS dataset.
+    split: The split configuration.
+    data_dir: The TFDS data directory.
+  """
+  name: str = None
+  version: str = None
+  split: TfdsDataSplitConfig = TfdsDataSplitConfig()
+  data_dir: str = None
+
+
+@dataclasses.dataclass
+class DataSourceConfig(hyperparams.OneOfConfig):
+  """Data source configuration.
+
+  Attributes:
+    type: The type of data source.
+    dlex: The DLEX data source configuration.
+    tfds: The TFDS data source configuration.
+  """
+  type: str = None
+  dlex: DlexDataSourceConfig = DlexDataSourceConfig()
+  tfds: TfdsDataSourceConfig = TfdsDataSourceConfig()
 
 
 @dataclasses.dataclass
@@ -53,10 +119,15 @@ class TensorSpecConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class ObjectConfig(hyperparams.Config):
+class DataSpecsConfig(hyperparams.Config):
+  """Specs configuration."""
+  train: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+  val: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+  test: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
+
+
+class ObjectConfig(hyperparams.ParamsDict):
   """Object configuration."""
-  class_name: str = None
-  config: hyperparams.ParamsDict = hyperparams.ParamsDict()
 
 
 @dataclasses.dataclass
@@ -75,12 +146,31 @@ class CacheTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class FilterTransformConfig(hyperparams.Config):
+  """Shuffle transform configuration."""
+  predicate: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class MapTransformConfig(hyperparams.Config):
   """Data transform configuration."""
   map_func: ObjectConfig = ObjectConfig()
   num_parallel_calls: Optional[int] = None
   deterministic: Optional[bool] = None
   component: Optional[Union[int, str]] = None
+  output: Optional[Union[int, str]] = None
+
+
+@dataclasses.dataclass
+class PrefetchTransformConfig(hyperparams.Config):
+  """Prefetch transform configuration."""
+  buffer_size: int = None
+
+
+@dataclasses.dataclass
+class RepeatTransformConfig(hyperparams.Config):
+  """Repeat transform configuration."""
+  count: int = None
 
 
 @dataclasses.dataclass
@@ -97,7 +187,10 @@ class DataTransformConfig(hyperparams.OneOfConfig):
   type: str = None
   batch: BatchTransformConfig = BatchTransformConfig()
   cache: CacheTransformConfig = CacheTransformConfig()
+  filter: FilterTransformConfig = FilterTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
+  prefetch: PrefetchTransformConfig = PrefetchTransformConfig()
+  repeat: RepeatTransformConfig = RepeatTransformConfig()
   shuffle: ShuffleTransformConfig = ShuffleTransformConfig()
 
 
@@ -109,15 +202,19 @@ class DataOptionsConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class DataTransformsConfig(hyperparams.Config):
+  """Data transforms configuration."""
+  train: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  val: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  test: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+
+
+@dataclasses.dataclass
 class DataConfig(hyperparams.Config):
   """Data configuration."""
   sources: List[DataSourceConfig] = dataclasses.field(default_factory=list)
-  train_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  val_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  test_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-  train_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
-  val_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
-  test_transforms: List[DataTransformConfig] = dataclasses.field(default_factory=list) # pylint: disable=line-too-long
+  specs: DataSpecsConfig = DataSpecsConfig()
+  transforms: DataTransformsConfig = DataTransformsConfig()
   options: DataOptionsConfig = DataOptionsConfig()
 
 
@@ -138,7 +235,7 @@ class ExperimentConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
-class NewModelConfig(hyperparams.Config):
+class ModelConfig(hyperparams.Config):
   """Model configuration.
 
   Attributes:
@@ -147,28 +244,14 @@ class NewModelConfig(hyperparams.Config):
     input_spec: A list of `TensorSpecConfig` defining the model input
       specification. If not specified, we will attempt to infer the input
       specification from the training dataset.
+    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
+      loads this model ignoring the remaining arguments.
+    weights: A `str`. Path to model weights.
   """
   network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
-
-
-@dataclasses.dataclass
-class ExistingModelConfig(hyperparams.Config):
-  """Existing model configuration.
-  
-  Attributes:
-    path: A `str`. Path to an existing model. Defaults to `None`. If not `None`,
-      loads this model ignoring the remaining arguments.
-  """
   path: str = None
-
-
-@dataclasses.dataclass
-class ModelConfig(hyperparams.OneOfConfig):
-  """Model configuration."""
-  type: str = 'new'
-  new: NewModelConfig = NewModelConfig()
-  existing: ExistingModelConfig = ExistingModelConfig()
+  weights: str = None
 
 
 @dataclasses.dataclass
@@ -181,11 +264,11 @@ class TrainingConfig(hyperparams.Config):
   Attributes:
     optimizer: A `str` or `ObjectConfig` defining a
       `tf.keras.optimizers.Optimizer`.
-    loss: A `str` or `ObjectConfig` defining a `tf.keras.losses.Loss` or a list
-      thereof.
-    metrics: A list of `str` or `ObjectConfig` defining a list of
+    loss: A nested structure of `str` or `ObjectConfig` defining one or more
+      `tf.keras.losses.Loss`.
+    metrics: A nested structure of `str` or `ObjectConfig` defining a list of
       `tf.keras.metrics.Metric`.
-    loss_weights: A list of `float` scalars to weight the different loss
+    loss_weights: A list or dict of `float` scalars to weight the different loss
       functions.
     weighted_metrics: A list of `str` or `ObjectConfig` defining a list of
       `tf.keras.metrics.Metric`.
@@ -201,7 +284,7 @@ class TrainingConfig(hyperparams.Config):
       `TensorBoard` callback will be added automatically, without the need to
       specify them explicitly.
   """
-  optimizer: ObjectConfig = 'RMSprop'
+  optimizer: ObjectConfig = ObjectConfig()
   loss: List[ObjectConfig] = dataclasses.field(default_factory=list)
   metrics: List[ObjectConfig] = dataclasses.field(default_factory=list)
   loss_weights: List[float] = dataclasses.field(default_factory=list)
@@ -221,12 +304,40 @@ class PredictConfig(hyperparams.Config):
   Attributes:
     datasets: A string or list of strings with the datasets to obtain and store
       predictions for. Can include the strings `'train'`, `'val'` and `'test'`.
+    evaluate: A `bool`. Whether to evaluate the model using the specified
+      datasets.
+    save_images: A `bool`. If true, saves processed images of the predictions.
+      3D images are saved as GIF files.
   """
   datasets: List[str] = 'test'
+  evaluate: bool = True
+  save_images: bool = False
 
 
 @dataclasses.dataclass
-class TrainModelWorkflowConfig(hyperparams.Config):
+class TuningConfig(hyperparams.Config):
+  """Tuning configuration.
+
+  Attributes:
+    tuner: An `ObjectConfig` definining the tuner configuration. For a list of
+      valid tuners and their configurations, see
+      https://keras.io/api/keras_tuner/tuners/.
+  """
+  tuner: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
+class DistributeConfig(hyperparams.Config):
+  """Distribute configuration.
+
+  Attribute:
+    strategy: An `ObjectConfig` defining the distribute strategy configuration.
+  """
+  strategy: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
+class TrainWorkflowConfig(hyperparams.Config):
   """Train model workflow configuration.
 
   Attributes:
@@ -235,35 +346,41 @@ class TrainModelWorkflowConfig(hyperparams.Config):
     model: A `ModelConfig`. The model configuration.
     training: A `TrainingConfig`. The training configuration.
     predict: A `PredictConfig`. The prediction configuration.
+    tuning: A `TuningConfig`. The tuning configuration.
+    distribute: A `DistributeConfig`. The distribute configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
   model: ModelConfig = ModelConfig()
   training: TrainingConfig = TrainingConfig()
   predict: PredictConfig = PredictConfig()
+  tuning: TuningConfig = TuningConfig()
+  distribute: DistributeConfig = DistributeConfig()
 
 
 @dataclasses.dataclass
-class TestModelWorkflowConfig(hyperparams.Config):
+class TestWorkflowConfig(hyperparams.Config):
   """Test model workflow configuration.
-  
+
   Attributes:
     experiment: An `ExperimentConfig`. General experiment configuration.
     data: A `DataConfig`. The dataset/s configuration.
-    model: An `ExistingModelConfig`. The model configuration.
+    model: A `ModelConfig`. The model configuration.
     predict: A `PredictConfig`. The prediction configuration.
+    distribute: A `DistributeConfig`. The distribute configuration.
   """
   experiment: ExperimentConfig = ExperimentConfig()
   data: DataConfig = DataConfig()
-  model: ExistingModelConfig = ExistingModelConfig()
+  model: ModelConfig = ModelConfig()
   predict: PredictConfig = PredictConfig()
+  distribute: DistributeConfig = DistributeConfig()
 
 
 def deserialize_special_objects(params):
   """Deserialize special objects.
 
-  Special objects include random numbers, random number generators and tunable
-  hyperparameters.
+  Special objects include random numbers, random number generators, tunable
+  hyperparameters and external module objects.
 
   Note that the output of this function can no longer be safely serialized and
   should not be written to YAML.
@@ -276,14 +393,18 @@ def deserialize_special_objects(params):
   """
   for k, v in params.__dict__.items():
 
-    if _is_special_config(v):
+    if is_special_config(v):
       params.__dict__[k] = _parse_special_config(v)
-    
+
     elif isinstance(v, hyperparams.ParamsDict):
       params.__dict__[k] = deserialize_special_objects(v)
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for i, e in enumerate(v):
+
+        if is_special_config(e):
+          params.__dict__[k][i] = _parse_special_config(e)
+
         if isinstance(e, hyperparams.ParamsDict):
           params.__dict__[k][i] = deserialize_special_objects(e)
 
@@ -298,32 +419,44 @@ def _parse_special_config(config):
 
   Returns:
     The corresponding special object.
+
+  Raises:
+    ValueError: If `config` is not a valid special configuration.
   """
-  if not _is_special_config(config):
+  if not is_special_config(config):
     raise ValueError(f"Not a valid special configuration: {config}")
 
-  obj_type, obj_config = next(iter(config.as_dict().items()))
+  d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
+  obj_type, obj_config = next(iter(d.items()))
   obj_type = obj_type[1:]
 
   if obj_type == 'rng':
     return _get_rng(obj_config)
 
-  elif obj_type == 'random':
+  if obj_type == 'random':
     return _get_rng(obj_config)()
 
-  else:
-    raise ValueError(f"Unknown special object type: {obj_type}")
+  if obj_type == 'tunable':
+    return _get_tunable(obj_config)
+
+  if obj_type == 'external':
+    return _get_external(obj_config)
+
+  raise ValueError(f"Unknown special object type: {obj_type}")
 
 
 def _get_rng(config):
   """Get a random number generator from the given config.
-  
+
   Args:
-    rng_config: An RNG config.
+    config: An RNG config.
 
   Returns:
     A callable with no arguments which returns random numbers according to the
     specified configuration.
+
+  Raises:
+    ValueError: If `config` is not a valid RNG config.
   """
   if 'type' not in config:
     raise ValueError(f"Invalid RNG config: {config}")
@@ -346,10 +479,77 @@ def _get_rng(config):
   if rng_type not in rng_func:
     raise ValueError(f"Unknown RNG type: {rng_type}")
 
-  return lambda: rng_func[rng_type](**rng_kwargs)    
+  return lambda: rng_func[rng_type](**rng_kwargs) # pylint: disable=unnecessary-lambda
 
 
-def _is_special_config(config):
+def _get_tunable(config):
+  """Get a tunable placeholder from the given config.
+
+  Args:
+    config: A tunable config dictionary.
+
+  Returns:
+    A `TunablePlaceholder`.
+
+  Raises:
+    ValueError: If `config` is not a valid tunable config.
+  """
+  if 'type' not in config:
+    raise ValueError(f"Invalid hyperparameter config: {config}")
+  tunable_type = config['type']
+
+  if tunable_type not in config:
+    tunable_kwargs = {}
+  else:
+    tunable_kwargs = config[tunable_type]
+
+  types_dict = {
+      'boolean': 'Boolean',
+      'choice': 'Choice',
+      'fixed': 'Fixed',
+      'float': 'Float',
+      'int': 'Int'
+  }
+
+  if tunable_type not in types_dict:
+    raise ValueError(f"Unknown hyperparameter type: {tunable_type}")
+
+  return util.TunablePlaceholder(types_dict[tunable_type], tunable_kwargs)
+
+
+def _get_external(config):
+  """Get an external object from the given config.
+
+  Args:
+    config: An external config dictionary.
+
+  Returns:
+    An `ExternalObject`.
+
+  Raises:
+    ValueError: If `config` is not a valid external config.
+  """
+  if 'filename' not in config:
+    raise ValueError(f"Invalid module config: {config}. Missing filename.")
+  if 'object_name' not in config:
+    raise ValueError(f"Invalid module config: {config}. Missing object_name.")
+
+  # Load the specified module.
+  path = pathlib.Path(config['filename'])
+  spec = importlib.util.spec_from_file_location(path.stem, str(path))
+  module = importlib.util.module_from_spec(spec)
+  spec.loader.exec_module(module)
+
+  # Retrieve the specified object from module.
+  obj = getattr(module, config['object_name'])
+
+  # Initialize object.
+  return util.ExternalObject(
+      obj(*config.get('args') or [], **config.get('kwargs') or {}),
+      filename=path)
+
+
+def is_special_config(config):
   """Check if input is a valid special config.
 
   Args:
@@ -359,17 +559,116 @@ def _is_special_config(config):
     True if input is a valid special config, false otherwise.
   """
   # Must by an object of type `ParamsDict`.
-  if not isinstance(config, hyperparams.ParamsDict):
-    return False  
-  
+  if not isinstance(config, (dict, hyperparams.ParamsDict)):
+    return False
+
   # Must have one key.
-  d = config.as_dict()
+  d = config.as_dict() if isinstance(config, hyperparams.ParamsDict) else config
   if not len(d) == 1:
     return False
 
   # Key must be a string starting with dollar sign $.
-  k = next(iter(d)) # First key in dict. 
+  k = next(iter(d)) # First key in dict.
   if not isinstance(k, str) or not k.startswith('$'):
     return False
 
   return True
+
+
+def find_hyperparameters(params, hp=None):
+  """Find all tunable hyperparameters in config.
+
+  Args:
+    params: A `hyperparams.Config`.
+    hp: A `kt.HyperParameters` object.
+
+  Returns:
+    A non-serializable `hyperparams.Config`.
+  """
+  if hp is None:
+    hp = kt.HyperParameters()
+
+  for v in params.__dict__.values():
+
+    if isinstance(v, util.TunablePlaceholder):
+      _ = v(hp)
+
+    elif isinstance(v, hyperparams.ParamsDict):
+      hp = find_hyperparameters(v, hp=hp)
+
+    elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+      for e in v:
+
+        if isinstance(e, util.TunablePlaceholder):
+          _ = e(hp)
+
+        if isinstance(e, hyperparams.ParamsDict):
+          hp = find_hyperparameters(e, hp=hp)
+
+  return hp
+
+
+def find_external_objects(params, ext_objects=None):
+  """Find all external objects in config.
+
+  Args:
+    params: A `hyperparams.Config`.
+    ext_objects: A list of `util.ExternalObject`.
+
+  Returns:
+    A list of `util.ExternalObject`.
+  """
+  ext_objects = []
+
+  def _find_external_objects(p):
+
+    for v in p.__dict__.values():
+      if isinstance(v, util.ExternalObject):
+        ext_objects.append(v)
+
+      elif isinstance(v, hyperparams.ParamsDict):
+        _find_external_objects(v)
+
+      elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+        for e in v:
+          if isinstance(e, util.ExternalObject):
+            ext_objects.append(v)
+
+          if isinstance(e, hyperparams.ParamsDict):
+            _find_external_objects(e)
+
+  _find_external_objects(params)
+  return ext_objects
+
+
+def inject_hyperparameters(params, hp):
+  """Injects current hyperparameters into params dict.
+
+  Args:
+    params: A `hyperparams.Config`, potentially containing hyperparameter
+      placeholders.
+    hp: A `kt.HyperParameters` object.
+
+  Returns:
+    A `hyperparams.Config` with the injected hyperparameter values.
+  """
+  params = copy.deepcopy(params)
+
+  for k, v in params.__dict__.items():
+
+    if isinstance(v, util.TunablePlaceholder):
+      params.__dict__[k] = v(hp)
+
+    elif isinstance(v, hyperparams.ParamsDict):
+      params.__dict__[k] = inject_hyperparameters(v, hp)
+
+    elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+      for i, e in enumerate(v):
+
+        if isinstance(v, util.TunablePlaceholder):
+          params.__dict__[k][i] = e(hp)
+
+        if isinstance(e, hyperparams.ParamsDict):
+          params.__dict__[k][i] = inject_hyperparameters(e, hp)
+
+  return params

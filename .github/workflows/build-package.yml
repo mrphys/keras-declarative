@@ -1,0 +1,95 @@
+name: build
+
+on:
+  push:
+    branches:
+      - master
+    tags:
+      - v[0-9]+.[0-9]+.[0-9]+*
+  pull_request:
+    branches:
+      - master
+
+jobs:
+
+  build:
+
+    name: Build package
+    runs-on: ubuntu-latest
+    
+    container:
+      image: ghcr.io/mrphys/tensorflow-manylinux:1.8.0
+
+    env:
+      PYTHON: python3.8
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Lint code
+        run: |
+          pylint --rcfile=pylintrc keras_declarative
+
+      - name: Install required packages
+        run: |
+          $PYTHON -m pip install -r requirements.txt
+
+      - name: Run test suite
+        run: |
+          $PYTHON -m unittest discover -v -p *_test.py
+
+      - name: Build wheel
+        run: |
+          $PYTHON setup.py bdist_wheel
+      
+      - name: Upload wheel
+        if: startsWith(github.ref, 'refs/tags')
+        uses: actions/upload-artifact@v2
+        with:
+          name: wheels
+          path: ./dist/*.whl
+
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          repository_url: https://test.pypi.org/legacy/
+          packages_dir: dist/
+          skip_existing: true
+
+
+  release:
+
+    name: Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags')
+    
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v2
+
+      - name: Get release tag
+        run: |
+          echo "release=${GITHUB_REF/refs\/tags\/v/}" >> $GITHUB_ENV
+
+      - name: Create a release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Keras Declarative ${{ env.release }}
+          body_path: RELEASE.rst
+          prerelease: ${{ contains(env.release, 'a') || contains(env.release, 'b') || contains(env.release, 'rc') }}
+          fail_on_unmatched_files: true
+
+      - name: Download wheels
+        uses: actions/download-artifact@v2
+        with:
+          name: wheels
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages_dir: dist/

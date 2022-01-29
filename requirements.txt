@@ -1,4 +1,7 @@
 h5py
+keras-tuner
+pandas
+pyyaml
 tensorflow
+tensorflow-datasets
 tensorflow-io
-tf-models-official
