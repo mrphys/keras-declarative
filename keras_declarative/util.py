@@ -98,7 +98,7 @@ class DatasetContainer():
   @property
   def train_ds(self):
     return self.datasets['train']
-  
+
   @property
   def val_ds(self):
     return self.datasets['val']
@@ -110,11 +110,11 @@ class DatasetContainer():
   @property
   def train_keys(self):
     return self.example_ids['train']
-  
+
   @property
   def val_keys(self):
     return self.example_ids['val']
-  
+
   @property
   def test_keys(self):
     return self.example_ids['test']
@@ -160,17 +160,22 @@ class DatasetContainer():
     """Calls `batch` on one or more datasets held by this container."""
     return self._transform_datasets('batch', *args, **kwargs)
 
-  def cache(self, filename='', name=None):
+  def cache(self, filename='', name=None):  # pylint: disable=missing-param-doc
     """Calls `cache` on one or more datasets held by this container."""
     # We need to copy-paste here to adapt the behaviour of
     # `_transform_datasets`.
-    for name in (self._selected_names or self.names):
-      cachefile = filename + f'-{name}' if filename else filename
+    keys_and_datasets = {name: [keys, ds] for name, (keys, ds)
+                         in self._keys_and_datasets.items()}
+    for ds_name in (self._selected_names or self.names):
+      cachefile = filename + f'-{ds_name}' if filename else filename
       if cachefile:
         self._cachefiles.append(cachefile)
-      self._keys_and_datasets[name][1] = self.datasets[name].cache(
+      keys_and_datasets[ds_name][1] = self.datasets[ds_name].cache(
           filename=cachefile, name=name)
-    return self
+    new_container = DatasetContainer(keys_and_datasets)
+    new_container._cachefiles = self._cachefiles  # pylint: disable=protected-access
+    new_container._selected_names = self._selected_names  # pylint: disable=protected-access
+    return new_container
 
   def map(self, *args, **kwargs):
     """Calls `map` on one or more datasets held by this container."""
@@ -188,12 +193,17 @@ class DatasetContainer():
     """Calls `with_options` on one or more datasets held by this container."""
     return self._transform_datasets('with_options', *args, **kwargs)
 
-  def _transform_datasets(self, method, *args, **kwargs):
+  def _transform_datasets(self, method, *args, **kwargs):  # pylint: disable=missing-param-doc
     """Calls method `method` on one or more datasets held by this container."""
-    for name in (self._selected_names or self.names):
-      self._keys_and_datasets[name][1] = getattr(self.datasets[name], method)(
+    keys_and_datasets = {name: [keys, ds] for name, (keys, ds)
+                         in self._keys_and_datasets.items()}
+    for ds_name in (self._selected_names or self.names):
+      keys_and_datasets[ds_name][1] = getattr(self.datasets[ds_name], method)(
           *args, **kwargs)
-    return self
+    new_container = DatasetContainer(keys_and_datasets)
+    new_container._cachefiles = self._cachefiles  # pylint: disable=protected-access
+    new_container._selected_names = self._selected_names  # pylint: disable=protected-access
+    return new_container
 
 
 class ExternalObject():
@@ -206,11 +216,8 @@ class ExternalObject():
     self._obj = obj
     self._filename = filename
 
-  def __call__(self, name):
-    return self._obj(name)
-
-  def __getattr__(self, name):
-    return getattr(self._obj, name)
+  def __call__(self, *args, **kwargs):
+    return self._obj(*args, **kwargs)
 
   @property
   def obj(self):
@@ -236,7 +243,7 @@ class TunablePlaceholder():
     return getattr(hp, self.type_)(**self.kwargs)
 
 
-class TunerMixin(kt.Tuner):
+class TunerMixin(kt.Tuner):  # pylint: disable=abstract-method
   """Mixin for Keras Tuner tuners."""
   def _configure_tensorboard_dir(self, callbacks, trial, execution=0):
     super()._configure_tensorboard_dir(callbacks, trial, execution)
@@ -259,15 +266,15 @@ class TunerMixin(kt.Tuner):
               if self.oracle.objective.direction == "max" else float("inf")}
 
 
-class RandomSearch(TunerMixin, kt.RandomSearch):
+class RandomSearch(TunerMixin, kt.RandomSearch):  # pylint: disable=abstract-method
   """Random search tuner with mixins."""
 
 
-class BayesianOptimization(TunerMixin, kt.BayesianOptimization):
+class BayesianOptimization(TunerMixin, kt.BayesianOptimization):  # pylint: disable=abstract-method
   """Bayesian optimization tuner with mixins."""
 
 
-class Hyperband(TunerMixin, kt.Hyperband):
+class Hyperband(TunerMixin, kt.Hyperband):  # pylint: disable=abstract-method
   """Hyperband tuner with mixins."""
   def _build_hypermodel(self, hp):
     """Builds a hypermodel.

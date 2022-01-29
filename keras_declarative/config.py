@@ -33,16 +33,34 @@ from keras_declarative import util
 
 @dataclasses.dataclass
 class DlexDataSplitConfig(hyperparams.Config):
-  """Data split configuration (DLEX)."""
-  train: float = 0.0
-  val: float = 0.0
-  test: float = 0.0
+  """Data split configuration (DLEX).
+
+  Attributes:
+    train: The training split. Can be an integer (e.g. 50) to use a fixed
+      number of examples, or a percentage (e.g. 50%) to use a fixed percentage
+      of the total number of examples.
+    val: The validation split. Can be an integer (e.g. 50) to use a fixed
+      number of examples, or a percentage (e.g. 50%) to use a fixed percentage
+      of the total number of examples.
+    test: The test split. Can be an integer (e.g. 50) to use a fixed number of
+      examples, or a percentage (e.g. 50%) to use a fixed percentage of the
+      total number of examples.
+  """
+  train: int = 0
+  val: int = 0
+  test: int = 0
   mode: str = 'random'
 
 
 @dataclasses.dataclass
 class TfdsDataSplitConfig(hyperparams.Config):
-  """Data split configuration (TFDS)."""
+  """Data split configuration (TFDS).
+
+  Attributes:
+    train: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+    val: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+    test: A TFDS split. See https://www.tensorflow.org/datasets/splits.
+  """
   train: str = None
   val: str = None
   test: str = None
@@ -50,7 +68,13 @@ class TfdsDataSplitConfig(hyperparams.Config):
 
 @dataclasses.dataclass
 class DlexDataSourceConfig(hyperparams.Config):
-  """DLEX data source configuration."""
+  """DLEX data source configuration.
+
+  Attributes:
+    path: Path to the directory containing the DLEX files.
+    prefix: The prefix of the DLEX files.
+    split: The split configuration.
+  """
   path: str = None
   prefix: str = None
   split: DlexDataSplitConfig = DlexDataSplitConfig()
@@ -58,7 +82,14 @@ class DlexDataSourceConfig(hyperparams.Config):
 
 @dataclasses.dataclass
 class TfdsDataSourceConfig(hyperparams.Config):
-  """TFDS data source configuration."""
+  """TFDS data source configuration.
+
+  Attributes:
+    name: The name of the TFDS dataset.
+    version: The version of the TFDS dataset.
+    split: The split configuration.
+    data_dir: The TFDS data directory.
+  """
   name: str = None
   version: str = None
   split: TfdsDataSplitConfig = TfdsDataSplitConfig()
@@ -67,7 +98,13 @@ class TfdsDataSourceConfig(hyperparams.Config):
 
 @dataclasses.dataclass
 class DataSourceConfig(hyperparams.OneOfConfig):
-  """Data source configuration"""
+  """Data source configuration.
+
+  Attributes:
+    type: The type of data source.
+    dlex: The DLEX data source configuration.
+    tfds: The TFDS data source configuration.
+  """
   type: str = None
   dlex: DlexDataSourceConfig = DlexDataSourceConfig()
   tfds: TfdsDataSourceConfig = TfdsDataSourceConfig()
@@ -227,11 +264,11 @@ class TrainingConfig(hyperparams.Config):
   Attributes:
     optimizer: A `str` or `ObjectConfig` defining a
       `tf.keras.optimizers.Optimizer`.
-    loss: A `str` or `ObjectConfig` defining a `tf.keras.losses.Loss` or a list
-      thereof.
-    metrics: A list of `str` or `ObjectConfig` defining a list of
+    loss: A nested structure of `str` or `ObjectConfig` defining one or more
+      `tf.keras.losses.Loss`.
+    metrics: A nested structure of `str` or `ObjectConfig` defining a list of
       `tf.keras.metrics.Metric`.
-    loss_weights: A list of `float` scalars to weight the different loss
+    loss_weights: A list or dict of `float` scalars to weight the different loss
       functions.
     weighted_metrics: A list of `str` or `ObjectConfig` defining a list of
       `tf.keras.metrics.Metric`.

@@ -264,7 +264,7 @@ def is_object_config(config):
 
   Args:
     config: The object to check.
-  
+
   Returns:
     True if input is a valid object configuration dict, false otherwise.
   """

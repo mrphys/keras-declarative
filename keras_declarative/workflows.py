@@ -135,20 +135,21 @@ class HyperModel(kt.HyperModel):
     self.params = params
     self.exp_name = exp_name
     self.exp_dir = exp_dir
-    self.ds_container = None
+    self.ds_container = ds_container
 
   def build(self, hp):
     """Builds a model."""
     params = config.inject_hyperparameters(self.params, hp)
-    self.ds_container = _transform_datasets(
+    self.transformed_ds_container = _transform_datasets(
         params, self.ds_container, self.exp_name)
-    _clean_up(ds_container.cachefiles)
-    return _build_model(params, self.ds_container)
+    _clean_up(self.transformed_ds_container.cachefiles)
+    return _build_model(params, self.transformed_ds_container)
 
   def fit(self, hp, model, *args, **kwargs): # pylint: disable=unused-argument
     """Trains a model."""
     _, history = _train_model(self.params, self.exp_dir, model,
-                              self.ds_container, *args, **kwargs)
+                              self.transformed_ds_container,
+                              *args, **kwargs)
     return history
 
 
@@ -173,6 +174,9 @@ def _setup_directory(params, config_file):
 
   Returns:
     The experiment name and the experiment directory.
+
+  Raises:
+    OSError: If the experiment directory already exists.
   """
   path = params.experiment.path or os.getcwd()
 
@@ -232,15 +236,19 @@ def _make_datasets_from_source(source, specs):
   """Make datasets from a generic source.
 
   Args:
-    source: A `DataSourceConfig` object.
+    source: A `DataSourceConfig`.
+    specs: A `DataSpecsConfig`.
 
   Returns:
     A `DatasetContainer`.
+
+  Raises:
+    ValueError: If passed an unsupported data source.
   """
   if source.type == 'dlex':
     return _make_dlex_datasets(source.dlex, specs)
-  elif source.type == 'tfds':
-    return _make_tfds_datasets(source.tfds, specs)
+  if source.type == 'tfds':
+    return _make_tfds_datasets(source.tfds)
   raise ValueError(f"Unsupported source type: {source.type}")
 
 
@@ -248,7 +256,8 @@ def _make_dlex_datasets(source, specs):
   """Makes datasets from DLEX source files.
 
   Args:
-    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    source: A `DataSourceConfig`.
+    specs: A `DataSpecsConfig`.
 
   Returns:
     A `DatasetContainer`.
@@ -314,7 +323,7 @@ def _make_dlex_datasets(source, specs):
       functools.partial(_read_hdf5, spec=val_spec))
   test_ds = test_ds.map(
       functools.partial(_read_hdf5, spec=test_spec))
-  
+
   # Remove the slashes added previously.
   def _remove_slashes(structure):
     if isinstance(structure, dict):
@@ -336,11 +345,11 @@ def _make_dlex_datasets(source, specs):
   })
 
 
-def _make_tfds_datasets(source, specs):
+def _make_tfds_datasets(source):
   """Makes datasets from a TFDS source.
 
   Args:
-    params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
+    source: A `DataSourceConfig`.
 
   Returns:
     A `DatasetContainer`.
@@ -349,7 +358,7 @@ def _make_tfds_datasets(source, specs):
   if source.version is not None:
     name = f"{name}:{source.version}"
 
-  datasets, info = tfds.load(
+  datasets, _ = tfds.load(
       name,
       split={k: v for k, v in source.split.as_dict().items() if v is not None},
       data_dir=source.data_dir,
@@ -396,7 +405,7 @@ def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
   """Add configured transforms to dataset.
 
   Args:
-    dataset: A `DatasetContainer`.
+    ds_container: A `DatasetContainer`.
     ds_name: The name of the dataset currently being processed. One of
       `'train'`, `'val'` or `'test'`.
     transforms: A list of `DataTransformConfig`.
@@ -625,7 +634,7 @@ def _test_model(params, model, ds_container, exp_dir):
       y_pred = _unstack_nested_tensors(y_pred)
 
       # For each element in batch.
-      for batch_index, (x_elem, y_elem, y_pred_elem) in enumerate(zip(x, y, y_pred)):
+      for x_elem, y_elem, y_pred_elem in zip(x, y, y_pred):
         data = {}
         def _add_to_data(data, values, names, prefix):
           if isinstance(values, (tuple, list)):
@@ -781,7 +790,7 @@ def _get_callbacks(params, exp_dir, ds_container=None, tuning=False):
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     exp_dir: A `str`. The experiment directory.
-    datasets: (optional) A `DatasetContainer`.
+    ds_container: (optional) A `DatasetContainer`.
     tuning: (optional) A `bool`. Whether this is being called by a tuner.
 
   Returns:
@@ -929,7 +938,8 @@ def _get_tensorboard_callback(params, exp_dir, kwargs=None):
   return tf.keras.callbacks.TensorBoard(**kwargs)
 
 
-def _get_images_callback(params, exp_dir, ds_container, class_name, kwargs=None):
+def _get_images_callback(params, exp_dir, ds_container,
+                         class_name, kwargs=None):
   """Gets the images callback.
 
   Args:
@@ -950,7 +960,8 @@ def _get_images_callback(params, exp_dir, ds_container, class_name, kwargs=None)
 
   dataset_name = kwargs.pop('x', 'val')
   default_kwargs = dict(
-      x=ds_container.datasets[dataset_name],
+      x=(ds_container.datasets[dataset_name]
+         if ds_container is not None else None),
       log_dir=_get_logs_path(params, exp_dir)
   )
 
@@ -966,7 +977,7 @@ def _get_images_callback(params, exp_dir, ds_container, class_name, kwargs=None)
   return callback
 
 
-def _get_ckpt_path(exp_dir, checkpoint_kwargs): # pylint: disable=missing-param-doc
+def _get_ckpt_path(exp_dir, checkpoint_kwargs):  # pylint: disable=missing-param-doc,missing-any-param-doc
   """Gets path to checkpoints."""
   # Get relevant checkpoint configuration.
   monitor = checkpoint_kwargs['monitor']
