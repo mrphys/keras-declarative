@@ -60,6 +60,18 @@ def train(config_file): # pylint: disable=missing-raises-doc
   params = config.deserialize_special_objects(serialized_params)
   hp = config.find_hyperparameters(params)
 
+  # Save external files.
+  ext_objects = config.find_external_objects(params)
+  external_filenames = []
+  for obj in ext_objects:
+    if obj.filename not in external_filenames:
+      external_filenames.append(obj.filename)
+  if external_filenames:
+    ext_dir = os.path.join(exp_dir, 'external')
+    tf.io.gfile.makedirs(ext_dir)
+    for filename in external_filenames:
+      tf.io.gfile.copy(str(filename), os.path.join(ext_dir, filename.name))
+
   if hp.space:
     # If a hyperparameter space is defined, launch tuning.
     hypermodel = HyperModel(params, exp_name, exp_dir, ds_container)

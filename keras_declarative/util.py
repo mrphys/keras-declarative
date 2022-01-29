@@ -202,8 +202,9 @@ class ExternalObject():
   This class is used to wrap objects that are loaded from an external module and
   are not managed by Keras Declarative.
   """
-  def __init__(self, obj):
+  def __init__(self, obj, filename):
     self._obj = obj
+    self._filename = filename
 
   def __call__(self, name):
     return self._obj(name)
@@ -214,6 +215,10 @@ class ExternalObject():
   @property
   def obj(self):
     return self._obj
+
+  @property
+  def filename(self):
+    return self._filename
 
 
 class TunablePlaceholder():

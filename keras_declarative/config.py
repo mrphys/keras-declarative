@@ -508,7 +508,8 @@ def _get_external(config):
 
   # Initialize object.
   return util.ExternalObject(
-      obj(*config.get('args') or [], **config.get('kwargs') or {}))
+      obj(*config.get('args') or [], **config.get('kwargs') or {}),
+      filename=path)
 
 
 def is_special_config(config):
@@ -568,6 +569,39 @@ def find_hyperparameters(params, hp=None):
           hp = find_hyperparameters(e, hp=hp)
 
   return hp
+
+
+def find_external_objects(params, ext_objects=None):
+  """Find all external objects in config.
+
+  Args:
+    params: A `hyperparams.Config`.
+    ext_objects: A list of `util.ExternalObject`.
+
+  Returns:
+    A list of `util.ExternalObject`.
+  """
+  ext_objects = []
+
+  def _find_external_objects(p):
+
+    for v in p.__dict__.values():
+      if isinstance(v, util.ExternalObject):
+        ext_objects.append(v)
+
+      elif isinstance(v, hyperparams.ParamsDict):
+        _find_external_objects(v)
+
+      elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
+        for e in v:
+          if isinstance(e, util.ExternalObject):
+            ext_objects.append(v)
+
+          if isinstance(e, hyperparams.ParamsDict):
+            _find_external_objects(e)
+
+  _find_external_objects(params)
+  return ext_objects
 
 
 def inject_hyperparameters(params, hp):
