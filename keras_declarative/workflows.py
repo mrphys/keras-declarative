@@ -62,7 +62,7 @@ def train(config_file): # pylint: disable=missing-raises-doc
 
   if hp.space:
     # If a hyperparameter space is defined, launch tuning.
-    hypermodel = HyperModel(params, exp_name, exp_dir, sources)
+    hypermodel = HyperModel(params, exp_name, exp_dir, ds_container)
     tuner = _get_tuner(params, hypermodel, exp_dir)
     tuner.search(epochs=params.training.epochs,
                  callbacks=_get_callbacks(params, exp_dir, tuning=True))
@@ -72,7 +72,7 @@ def train(config_file): # pylint: disable=missing-raises-doc
       ds_container = _transform_datasets(params, ds_container, exp_name)
       model = _build_model(params, ds_container)
       model, _ = _train_model(params, exp_dir, model, ds_container)
-      _test_model(params, model, ds_container, sources, exp_dir)
+      _test_model(params, model, ds_container, exp_dir)
       _clean_up(ds_container.cachefiles)
 
     except BaseException as err:
@@ -106,7 +106,7 @@ def test(config_file): # pylint: disable=missing-raises-doc
     ds_container = _make_datasets(serialized_params)
     ds_container = _transform_datasets(params, ds_container, exp_name)
     model = _build_model(params, ds_container)
-    _test_model(params, model, ds_container, sources, exp_dir)
+    _test_model(params, model, ds_container, exp_dir)
     _clean_up(ds_container.cachefiles)
 
   except BaseException as err:
@@ -118,12 +118,11 @@ def test(config_file): # pylint: disable=missing-raises-doc
 
 class HyperModel(kt.HyperModel):
   """Custom hypermodel for Keras Declarative."""
-  def __init__(self, params, exp_name, exp_dir, sources, **kwargs):
+  def __init__(self, params, exp_name, exp_dir, ds_container, **kwargs):
     super().__init__(**kwargs)
     self.params = params
     self.exp_name = exp_name
     self.exp_dir = exp_dir
-    self.sources = sources
     self.ds_container = None
 
   def build(self, hp):
@@ -552,38 +551,23 @@ def _train_model(params, exp_dir, model, ds_container, **kwargs):
   return model, history
 
 
-def _test_model(params, model, ds_container, sources, exp_dir):
+def _test_model(params, model, ds_container, exp_dir):
   """Tests a model.
 
   Args:
     params: A `TrainWorkflowConfig` or `TestWorkflowConfig`.
     model: A `tf.keras.Model`.
     ds_container: A `DatasetContainer`.
-    sources: A tuple of three lists of sources (train, val, test).
     exp_dir: A `str`. The experiment directory.
   """
   print("Predicting...")
-  train_ds, val_ds, test_ds = datasets
-  train_sources, val_sources, test_sources = sources
-
-  datasets = {
-      'train': train_ds,
-      'val': val_ds,
-      'test': test_ds
-  }
-
-  sources = {
-      'train': train_sources,
-      'val': val_sources,
-      'test': test_sources
-  }
 
   if isinstance(params.predict.datasets, str):
     dataset_keys = [params.predict.datasets]
   else:
     dataset_keys = params.predict.datasets
 
-  datasets = {k: datasets[k] for k in dataset_keys}
+  datasets = {k: ds_container.datasets[k] for k in dataset_keys}
 
   pred_path = _get_pred_path(params, exp_dir)
   tf.io.gfile.makedirs(pred_path)
@@ -596,11 +580,9 @@ def _test_model(params, model, ds_container, sources, exp_dir):
     eval_path = _get_eval_path(params, exp_dir)
     tf.io.gfile.makedirs(eval_path)
 
-  input_names = defaultdict(lambda key: 'input_' + str(key))
-  label_names = defaultdict(lambda key: 'label_' + str(key))
-  pred_names = defaultdict(lambda key: 'pred_' + str(key))
-
-  # TODO: add possibility of using user-specified names.
+  feature_names = ['features/' + name for name in model.input_names]
+  label_names = ['labels/' + name for name in model.output_names]
+  pred_names = ['predictions/' + name for name in model.output_names]
 
   for ds_name, dataset in datasets.items():
 
@@ -617,7 +599,7 @@ def _test_model(params, model, ds_container, sources, exp_dir):
 
     # Get number of elements.
     n = dataset.cardinality().numpy()
-    if n < 0: # -1 means infinite, -2 means unknown
+    if n < 0:  # -1 means infinite, -2 means unknown
       n = None
 
     progbar = tf.keras.utils.Progbar(n)
@@ -626,23 +608,29 @@ def _test_model(params, model, ds_container, sources, exp_dir):
       x, y, _ = tf.keras.utils.unpack_x_y_sample_weight(element)
       y_pred = model(x, training=False)
 
-      x = _flatten_and_unbatch_nested_tensors(x)
-      y = _flatten_and_unbatch_nested_tensors(y)
-      y_pred = _flatten_and_unbatch_nested_tensors(y_pred)
+      x = _unstack_nested_tensors(x)
+      y = _unstack_nested_tensors(y)
+      y_pred = _unstack_nested_tensors(y_pred)
 
       # For each element in batch.
-      batch_size = len(x[0])
-      for batch_index in range(batch_size):
+      for batch_index, (x_elem, y_elem, y_pred_elem) in enumerate(zip(x, y, y_pred)):
         data = {}
-        for elem_index, elem in enumerate(x):
-          data[input_names[elem_index]] = elem[batch_index]
-        for elem_index, elem in enumerate(y):
-          data[label_names[elem_index]] = elem[batch_index]
-        for elem_index, elem in enumerate(y_pred):
-          data[pred_names[elem_index]] = elem[batch_index]
+        def _add_to_data(data, values, names, prefix):
+          if isinstance(values, (tuple, list)):
+            for elem_index, elem in enumerate(values):
+              data[names[elem_index]] = elem
+          elif isinstance(values, dict):
+            for key, value in values.items():
+              data[prefix + '/' + key] = value
+          else:
+            data[names[0]] = values
+          return data
+        data = _add_to_data(data, x_elem, feature_names, 'features')
+        data = _add_to_data(data, y_elem, label_names, 'labels')
+        data = _add_to_data(data, y_pred_elem, pred_names, 'predictions')
 
         basename = os.path.splitext(
-            os.path.basename(sources[ds_name].pop(0)))[0]
+            os.path.basename(ds_container.example_ids[ds_name].pop(0)))[0]
         file_path = os.path.join(ds_pred_path, basename + '.h5')
         io.write_hdf5(file_path, data)
 
@@ -653,9 +641,12 @@ def _test_model(params, model, ds_container, sources, exp_dir):
           tf.io.write_file(file_path, tfmr.io.encode_gif(image))
 
         if params.predict.evaluate:
-          inputs = [tf.expand_dims(data[v], 0) for v in input_names.values()]
-          labels = [tf.expand_dims(data[v], 0) for v in label_names.values()]
-          results = model.evaluate(x=inputs, y=labels, verbose=0)
+          # Add batch dimensions.
+          features = {k.replace('features/', ''): tf.expand_dims(v, 0)
+                      for k, v in data.items() if k.startswith('features/')}
+          labels = {k.replace('labels/', ''): tf.expand_dims(v, 0)
+                    for k, v in data.items() if k.startswith('labels/')}
+          results = model.evaluate(x=features, y=labels, verbose=0)
           df = df.append(dict(zip(columns, [basename] + results)),
                          ignore_index=True)
 
@@ -845,16 +836,26 @@ def _get_callbacks(params, exp_dir, ds_container=None, tuning=False):
   return callbacks
 
 
-def _flatten_and_unbatch_nested_tensors(structure):
-  """Flattens and unbatches a nest of tensors.
+def _unstack_nested_tensors(structure):
+  """Make list of unstacked nested tensors.
 
-  The output is a list of lists. The outer list corresponds to the number of
-  elements in the input structure. The inner lists contain the unbatched
-  tensors.
+  Args:
+    structure: Nested structure of tensors whose first dimension is to be
+      unstacked.
+
+  Returns:
+    A list of the unstacked nested tensors.
   """
   if structure is None:
     return structure
-  return [tf.unstack(x) for x in tf.nest.flatten(structure)]
+
+  flat_sequence = tf.nest.flatten(structure)
+  unstacked_flat_sequence = [tf.unstack(tensor) for tensor in flat_sequence]
+
+  return [
+      tf.nest.pack_sequence_as(structure, sequence)
+      for sequence in zip(*unstacked_flat_sequence)
+  ]
 
 
 def _get_checkpoint_callback(params, exp_dir, kwargs=None):
