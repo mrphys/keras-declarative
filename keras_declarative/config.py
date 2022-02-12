@@ -89,11 +89,13 @@ class TfdsDataSourceConfig(hyperparams.Config):
     version: The version of the TFDS dataset.
     split: The split configuration.
     data_dir: The TFDS data directory.
+    shuffle_files: Whether to shuffle the input files.
   """
   name: str = None
   version: str = None
   split: TfdsDataSplitConfig = TfdsDataSplitConfig()
   data_dir: str = None
+  shuffle_files: bool = False
 
 
 @dataclasses.dataclass

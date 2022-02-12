@@ -362,6 +362,7 @@ def _make_tfds_datasets(source):
       name,
       split={k: v for k, v in source.split.as_dict().items() if v is not None},
       data_dir=source.data_dir,
+      shuffle_files=source.shuffle_files,
       read_config=tfds.ReadConfig(try_autocache=False,
                                   add_tfds_id=True,
                                   interleave_cycle_length=1,
