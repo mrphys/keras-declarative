@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     
     container:
-      image: ghcr.io/mrphys/tensorflow-manylinux:1.8.0
+      image: ghcr.io/mrphys/tensorflow-manylinux:1.10.0
 
     env:
       PYTHON: python3.8

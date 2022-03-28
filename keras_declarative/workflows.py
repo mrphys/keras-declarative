@@ -656,10 +656,10 @@ def _test_model(params, model, ds_container, exp_dir):
         io.write_hdf5(file_path, data)
 
         if params.predict.save_images:
-          tfmr = _get_tensorflow_mri()
+          tfmri = _get_tensorflow_mri()
           image = _make_image(data)
           file_path = os.path.join(ds_image_path, basename + '.gif')
-          tf.io.write_file(file_path, tfmr.io.encode_gif(image))
+          tf.io.write_file(file_path, tfmri.io.encode_gif(image))
 
         if params.predict.evaluate:
           # Add batch dimensions.
@@ -950,7 +950,7 @@ def _get_images_callback(params, exp_dir, ds_container,
     kwargs: (optional) A `dict`. Keyword arguments for the callback.
 
   Returns:
-    A `tfmr.callbacks.TensorBoardImages` instance, or `None`.
+    A `tfmri.callbacks.TensorBoardImages` instance, or `None`.
 
   Raises:
     ValueError: If `kwargs` is not `None` and TensorFlow MRI cannot be imported.
@@ -967,10 +967,10 @@ def _get_images_callback(params, exp_dir, ds_container,
 
   kwargs = {**default_kwargs, **kwargs} if kwargs else default_kwargs
 
-  tfmr = _get_tensorflow_mri(
+  tfmri = _get_tensorflow_mri(
       message="TensorFlow MRI is needed to use the TensorBoardImages callback.",
       missing_ok=False)
-  callback = getattr(tfmr.callbacks, class_name)(**kwargs)
+  callback = getattr(tfmri.callbacks, class_name)(**kwargs)
   # Store user dataset selection to use when patching the callback during
   # hyperparameter tuning.
   callback.dataset_name = dataset_name

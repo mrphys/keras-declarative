@@ -334,11 +334,11 @@ _STRATEGY_MODULES = [
 
 # Try to discover objects from TensorFlow MRI, if it is installed.
 try:
-  import tensorflow_mri as tfmr
-  _CALLBACK_MODULES.append(tfmr.callbacks)
-  _LAYER_MODULES.extend([tfmr.layers, tfmr.experimental.layers])
-  _LOSS_MODULES.append(tfmr.losses)
-  _METRIC_MODULES.append(tfmr.metrics)
+  import tensorflow_mri as tfmri
+  _CALLBACK_MODULES.append(tfmri.callbacks)
+  _LAYER_MODULES.extend([tfmri.layers])
+  _LOSS_MODULES.append(tfmri.losses)
+  _METRIC_MODULES.append(tfmri.metrics)
 except ImportError:
   pass
 

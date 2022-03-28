@@ -235,10 +235,21 @@ class ExperimentConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class AppConfig(hyperparams.Config):
+  """App configuration."""
+  name: str = None
+  config: ObjectConfig = ObjectConfig()
+  preprocess_input: bool = True
+  decode_predictions: bool = True
+
+
+@dataclasses.dataclass
 class ModelConfig(hyperparams.Config):
   """Model configuration.
 
   Attributes:
+    type: A `str`. The type of model. One of `'app'`, `'layers'` or `'model'`.
+    app: An `AppConfig`. The app configuration.
     network: A `str` or `ObjectConfig` defining a `tf.keras.layers.Layer` or a
       list thereof, implementing a sequential network architecture.
     input_spec: A list of `TensorSpecConfig` defining the model input
@@ -248,6 +259,8 @@ class ModelConfig(hyperparams.Config):
       loads this model ignoring the remaining arguments.
     weights: A `str`. Path to model weights.
   """
+  type: str = None
+  app: AppConfig = AppConfig()
   network: List[ObjectConfig] = ObjectConfig()
   input_spec: List[TensorSpecConfig] = dataclasses.field(default_factory=list)
   path: str = None
