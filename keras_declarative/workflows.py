@@ -442,6 +442,10 @@ def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
       predicate = objects.get_predicate(transform.filter.predicate)
       ds_container = ds_container.filter(predicate)
 
+    elif transform.type == 'flat_map':
+      map_func = objects.get_layer(transform.flat_map.map_func)
+      ds_container = ds_container.flat_map(map_func)
+
     elif transform.type == 'map':
       map_func = objects.get_layer(transform.map.map_func)
       ds_container = ds_container.map(

@@ -177,6 +177,10 @@ class DatasetContainer():
     new_container._selected_names = self._selected_names  # pylint: disable=protected-access
     return new_container
 
+  def flat_map(self, *args, **kwargs):
+    """Calls `flat_map` on one or more datasets held by this container."""
+    return self._transform_datasets('flat_map', *args, **kwargs)
+
   def map(self, *args, **kwargs):
     """Calls `map` on one or more datasets held by this container."""
     return self._transform_datasets('map', *args, **kwargs)

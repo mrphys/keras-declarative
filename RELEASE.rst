@@ -1,4 +1,4 @@
-Release 0.3.0
+Release 0.4.0
 =============
 
-Fixed a bug with TFMRI compatibility.
+Added flat_map.

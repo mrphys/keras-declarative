@@ -152,8 +152,14 @@ class FilterTransformConfig(hyperparams.Config):
 
 
 @dataclasses.dataclass
+class FlatMapTransformConfig(hyperparams.Config):
+  """Flat map transform configuration."""
+  map_func: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class MapTransformConfig(hyperparams.Config):
-  """Data transform configuration."""
+  """Map transform configuration."""
   map_func: ObjectConfig = ObjectConfig()
   num_parallel_calls: Optional[int] = None
   deterministic: Optional[bool] = None
@@ -188,6 +194,7 @@ class DataTransformConfig(hyperparams.OneOfConfig):
   batch: BatchTransformConfig = BatchTransformConfig()
   cache: CacheTransformConfig = CacheTransformConfig()
   filter: FilterTransformConfig = FilterTransformConfig()
+  flat_map: FlatMapTransformConfig = FlatMapTransformConfig()
   map: MapTransformConfig = MapTransformConfig()
   prefetch: PrefetchTransformConfig = PrefetchTransformConfig()
   repeat: RepeatTransformConfig = RepeatTransformConfig()
