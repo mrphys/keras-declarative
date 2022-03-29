@@ -1,4 +1,4 @@
-Release 0.2.0
+Release 0.3.0
 =============
 
-Initial release of Keras Declarative.
+Fixed a bug with TFMRI compatibility.
