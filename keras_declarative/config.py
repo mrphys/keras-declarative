@@ -131,6 +131,12 @@ class ObjectConfig(hyperparams.ParamsDict):
 
 
 @dataclasses.dataclass
+class ApplyTransformConfig(hyperparams.Config):
+  """Apply transform configuration."""
+  transformation_func: ObjectConfig = ObjectConfig()
+
+
+@dataclasses.dataclass
 class BatchTransformConfig(hyperparams.Config):
   """Batch transform configuration."""
   batch_size: int = None
@@ -191,6 +197,7 @@ class ShuffleTransformConfig(hyperparams.Config):
 class DataTransformConfig(hyperparams.OneOfConfig):
   """Data transform configuration."""
   type: str = None
+  apply: ApplyTransformConfig = ApplyTransformConfig()
   batch: BatchTransformConfig = BatchTransformConfig()
   cache: CacheTransformConfig = CacheTransformConfig()
   filter: FilterTransformConfig = FilterTransformConfig()

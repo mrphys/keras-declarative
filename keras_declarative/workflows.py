@@ -421,6 +421,11 @@ def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
   ds_container = ds_container.select(ds_name)
 
   for transform in transforms or []:
+    if transform.type == 'apply':
+      transformation_func = objects.get_layer(
+          transform.apply.transformation_func)
+      ds_container = ds_container.apply(transformation_func)
+
     if transform.type == 'batch':
       ds_container = ds_container.batch(
           transform.batch.batch_size,
