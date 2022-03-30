@@ -1,4 +1,4 @@
-Release 0.5.0
+Release 0.5.1
 =============
 
-Added apply.
+Fixed a bug with the ``apply`` transformation.

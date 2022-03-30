@@ -426,7 +426,7 @@ def _add_transforms(ds_container, ds_name, transforms, options, exp_name):
           transform.apply.transformation_func)
       ds_container = ds_container.apply(transformation_func)
 
-    if transform.type == 'batch':
+    elif transform.type == 'batch':
       ds_container = ds_container.batch(
           transform.batch.batch_size,
           drop_remainder=transform.batch.drop_remainder,
