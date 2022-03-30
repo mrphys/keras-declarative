@@ -155,7 +155,7 @@ class DatasetContainer():
   def unselect(self):
     self._selected_names = None
     return self
-  
+
   def apply(self, *args, **kwargs):
     """Calls `apply` on one or more datasets held by this container."""
     return self._transform_datasets('apply', *args, **kwargs)
