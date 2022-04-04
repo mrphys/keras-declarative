@@ -626,7 +626,7 @@ def find_hyperparameters(params, hp=None):
       hp = find_hyperparameters(v, hp=hp)
 
     elif isinstance(v, util.ExternalObject):
-      hp = find_hyperparameters(hyperparams.ParamsDict(v._kwargs), hp=hp)
+      hp = find_hyperparameters(hyperparams.ParamsDict(v._kwargs), hp=hp)  # pylint: disable=protected-access
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for e in v:
@@ -695,8 +695,8 @@ def inject_hyperparameters(params, hp):
       params.__dict__[k] = inject_hyperparameters(v, hp)
 
     elif isinstance(v, util.ExternalObject):
-      params.__dict__[k]._kwargs = inject_hyperparameters(
-          hyperparams.ParamsDict(v._kwargs), hp).as_dict()
+      params.__dict__[k]._kwargs = inject_hyperparameters(  # pylint: disable=protected-access
+          hyperparams.ParamsDict(v._kwargs), hp).as_dict()  # pylint: disable=protected-access
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for i, e in enumerate(v):

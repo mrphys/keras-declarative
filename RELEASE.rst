@@ -1,4 +1,4 @@
-Release 0.5.1
+Release 0.6.0
 =============
 
-Fixed a bug with the ``apply`` transformation.
+Add support for hyperparameter tuning in external objects.
