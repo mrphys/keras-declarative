@@ -184,7 +184,7 @@ class ParamsDict(object):
     """The implementation of `override`."""
     for k, v in six.iteritems(override_dict):
       if k in ParamsDict.RESERVED_ATTR:
-        raise KeyError('The key `%{}` is internally reserved. '
+        raise KeyError(f'The key `{k}` is internally reserved. '
                        'Can not be overridden.')
       if k not in self.__dict__.keys():
         if is_strict:

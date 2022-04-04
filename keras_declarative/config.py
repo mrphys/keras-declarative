@@ -570,10 +570,12 @@ def _get_external(config):
   # Retrieve the specified object from module.
   obj = getattr(module, config['object_name'])
 
+  args = config.get('args') or []
+  kwargs = config.get('kwargs') or {}
+  kwargs = deserialize_special_objects(hyperparams.ParamsDict(kwargs)).as_dict()
+
   # Initialize object.
-  return util.ExternalObject(
-      obj(*config.get('args') or [], **config.get('kwargs') or {}),
-      filename=path)
+  return util.ExternalObject(obj, args, kwargs, filename=path)
 
 
 def is_special_config(config):
@@ -622,6 +624,9 @@ def find_hyperparameters(params, hp=None):
 
     elif isinstance(v, hyperparams.ParamsDict):
       hp = find_hyperparameters(v, hp=hp)
+
+    elif isinstance(v, util.ExternalObject):
+      hp = find_hyperparameters(hyperparams.ParamsDict(v._kwargs), hp=hp)
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for e in v:
@@ -688,6 +693,10 @@ def inject_hyperparameters(params, hp):
 
     elif isinstance(v, hyperparams.ParamsDict):
       params.__dict__[k] = inject_hyperparameters(v, hp)
+
+    elif isinstance(v, util.ExternalObject):
+      params.__dict__[k]._kwargs = inject_hyperparameters(
+          hyperparams.ParamsDict(v._kwargs), hp).as_dict()
 
     elif isinstance(v, hyperparams.Config.SEQUENCE_TYPES):
       for i, e in enumerate(v):
