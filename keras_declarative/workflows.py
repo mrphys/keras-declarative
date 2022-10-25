@@ -26,6 +26,12 @@ import keras_tuner as kt
 import numpy as np
 import pandas as pd
 import tensorflow as tf
+try:
+  physical_devices = tf.config.experimental.list_physical_devices('GPU')
+  tf.config.experimental.set_memory_growth(physical_devices[0], True)
+  print('setting Memory Growth (for simultaneous preproc and training OJ)')
+except:
+  print('FAILED: setting Memory Growth (for simultaneous preproc and training OJ)')
 import tensorflow_datasets as tfds
 import tensorflow_io as tfio
 

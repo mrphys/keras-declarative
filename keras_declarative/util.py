@@ -312,7 +312,7 @@ class Hyperband(TunerMixin, kt.Hyperband):  # pylint: disable=abstract-method
 
       model.load_weights(
           self._get_checkpoint_fname(
-              history_trial.trial_id, history_trial.best_step
+              history_trial.trial_id #, history_trial.best_step
           )
       )
     return model
